@@ -1,0 +1,46 @@
+{
+  "format": "dsh.workflow",
+  "version": 1,
+  "workflowApiVersion": 1,
+  "minDshVersion": "0.0.1-rc.2",
+  "manifest": {
+    "name": "review-example",
+    "description": "Review independent scopes, challenge findings, and preserve evidence.",
+    "phases": ["review", "verify", "synthesize"],
+    "readOnly": true,
+    "plannedAgents": 4,
+    "maxAgents": 6,
+    "maxConcurrency": 3,
+    "mayUseWorktree": false,
+    "patterns": ["fan-out-and-synthesize", "adversarial-verification"],
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request": { "type": "string" },
+        "scopes": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["request", "scopes"]
+    }
+  },
+  "source": "async function run(wf, args) {\n  const findings = await wf.phase(\"review\", async () => await wf.parallel(args.scopes.map((scope, index) => async () => await wf.runAgent({ name: \"reviewer-\" + (index + 1), prompt: args.request + \"\\nScope: \" + scope, scopeSummary: scope, readOnly: true, modelHint: \"deep\" })), { concurrency: 3 }));\n  const verification = await wf.phase(\"verify\", async () => await wf.runAgent({ name: \"verifier\", prompt: \"Challenge and deduplicate these findings:\\n\" + JSON.stringify(findings), readOnly: true, modelHint: \"deep\" }));\n  await wf.artifact(\"review-evidence\", { findings, verification });\n  return await wf.phase(\"synthesize\", async () => await wf.synthesize({ inputs: [findings, verification], rubric: \"Return only evidence-backed findings in severity order.\" }));\n}",
+  "intent": {
+    "taskClass": "code-review",
+    "patterns": ["fan-out-and-synthesize", "adversarial-verification"],
+    "reusableFor": ["large code reviews", "multi-scope audits"],
+    "notFor": ["single-line changes"]
+  },
+  "inputs": {
+    "description": "A review request and independent scope names.",
+    "examples": [{ "request": "Review this change", "scopes": ["implementation", "tests", "docs"] }]
+  },
+  "requires": {
+    "environment": ["git-repo"],
+    "modelTiers": ["deep"]
+  },
+  "provenance": {
+    "createdAt": "2026-08-13T00:00:00.000Z",
+    "dshVersion": "0.0.1-rc.2",
+    "pluginVersion": "0.1.0"
+  }
+}

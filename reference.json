@@ -1,0 +1,5 @@
+{
+  "designReference": "https://github.com/icetomoyo/KodaX",
+  "commit": "2e5966384f57fb1d979546962b825cd380c6c55f",
+  "note": "Behavioral reference only; this repository contains an independent DSH implementation."
+}

@@ -1,0 +1,120 @@
+{
+  "name": "@dsh-external/workflow",
+  "version": "0.1.0",
+  "description": "KodaX-parity dynamic workflow harness for DeepSeek Harness",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./capsule": {
+      "types": "./lib/capsule.d.ts",
+      "default": "./lib/capsule.js"
+    },
+    "./catalog": {
+      "types": "./lib/catalog.d.ts",
+      "default": "./lib/catalog.js"
+    },
+    "./runtime": {
+      "types": "./lib/runtime.d.ts",
+      "default": "./lib/runtime.js"
+    },
+    "./store": {
+      "types": "./lib/store.d.ts",
+      "default": "./lib/store.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts",
+    "cordis.patch.yml",
+    "compatibility.json",
+    "reference.json",
+    "README.md",
+    "README.en.md",
+    "docs/**/*.md",
+    "examples/*.json",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check:compatibility": "node scripts/check-compatibility.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "lint": "tsc -p tsconfig.test.json --noEmit",
+    "check": "pnpm run check:compatibility && pnpm run test && pnpm run typecheck && pnpm run build",
+    "prepack": "pnpm run build"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsh-external/dsh_workflow.git"
+  },
+  "homepage": "https://github.com/dsh-external/dsh_workflow#readme",
+  "bugs": {
+    "url": "https://github.com/dsh-external/dsh_workflow/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "workflow",
+    "dshtopic",
+    "multi-agent",
+    "agent-orchestration"
+  ],
+  "license": "BSD-3-Clause",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1-rc.1",
+    "@deepseek-ai/dsh-agent": "^0.0.1-rc.2",
+    "@deepseek-ai/dsh-commands": "^0.0.1-rc.2",
+    "@deepseek-ai/dsh-jobs": "^0.0.1-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.0.1-rc.2",
+    "@deepseek-ai/dsh-session": "^0.0.1-rc.2",
+    "@deepseek-ai/dsh-subagent": "^0.0.1-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "^0.0.1-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.0.1-rc.2",
+    "@deepseek-ai/dsh-user-approval": "^0.0.1-rc.2",
+    "@deepseek-ai/dsh-user-questions": "^0.0.1-rc.2",
+    "@deepseek-ai/dsh-workflow": "^0.0.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.1-rc.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:../test-icetomoyo/vendor/cordis",
+    "@deepseek-ai/dsh-agent": "link:../test-icetomoyo/packages/core/agent",
+    "@deepseek-ai/dsh-commands": "link:../test-icetomoyo/packages/interaction/commands",
+    "@deepseek-ai/dsh-jobs": "link:../test-icetomoyo/packages/jobs/jobs",
+    "@deepseek-ai/dsh-llm": "link:../test-icetomoyo/packages/llm/llm",
+    "@deepseek-ai/dsh-session": "link:../test-icetomoyo/packages/core/session",
+    "@deepseek-ai/dsh-subagent": "link:../test-icetomoyo/packages/subagent/subagent",
+    "@deepseek-ai/dsh-system-prompt": "link:../test-icetomoyo/packages/core/system-prompt",
+    "@deepseek-ai/dsh-tools": "link:../test-icetomoyo/packages/core/tools",
+    "@deepseek-ai/dsh-user-approval": "link:../test-icetomoyo/packages/interaction/user-approval",
+    "@deepseek-ai/dsh-user-questions": "link:../test-icetomoyo/packages/interaction/user-questions",
+    "@deepseek-ai/dsh-workflow": "link:../test-icetomoyo/packages/workflow/workflow",
+    "@deepseek-ai/schemastery": "link:../test-icetomoyo/vendor/schemastery",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "quickjs-emscripten": "0.32.0"
+  }
+}

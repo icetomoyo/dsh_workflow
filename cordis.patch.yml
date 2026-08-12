@@ -1,0 +1,6 @@
+# Reusable, governed, durable multi-agent workflows over DSH subagent,
+# approval, Session, background-job, command, and tool extension seams.
+
+- insert:
+    - id: dsh-external-workflow
+      name: '@dsh-external/workflow'
