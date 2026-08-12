@@ -71,7 +71,7 @@
     "multi-agent",
     "agent-orchestration"
   ],
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "publishConfig": {
     "access": "public"
   },

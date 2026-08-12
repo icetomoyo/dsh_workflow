@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="License BSD-3-Clause" src="https://img.shields.io/badge/License-BSD%203--Clause-blue.svg"></a>
+  <a href="LICENSE"><img alt="License MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
   <img alt="DSH 0.0.1-rc.2" src="https://img.shields.io/badge/DSH-0.0.1--rc.2-8257D0.svg">
   <img alt="Tests 149" src="https://img.shields.io/badge/tests-149%20passing-brightgreen.svg">
   <img alt="KodaX workflow parity" src="https://img.shields.io/badge/workflow-KodaX%20parity-0A84FF.svg">
@@ -233,4 +233,4 @@ pnpm pack
 
 ## License
 
-BSD-3-Clause，见 [LICENSE](LICENSE)。
+MIT，见 [LICENSE](LICENSE)。

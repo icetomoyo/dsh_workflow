@@ -85,4 +85,4 @@ The suite currently contains 149 tests and enforces 80% global statement, branch
 
 ## License
 
-BSD-3-Clause. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
