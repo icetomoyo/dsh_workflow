@@ -2,7 +2,7 @@
   "format": "dsh.workflow",
   "version": 1,
   "workflowApiVersion": 1,
-  "minDshVersion": "0.0.1-rc.2",
+  "minDshVersion": "0.1.0-rc.5",
   "manifest": {
     "name": "review-example",
     "description": "Review independent scopes, challenge findings, and preserve evidence.",
@@ -40,7 +40,7 @@
   },
   "provenance": {
     "createdAt": "2026-08-13T00:00:00.000Z",
-    "dshVersion": "0.0.1-rc.2",
+    "dshVersion": "0.1.0-rc.5",
     "pluginVersion": "0.1.0"
   }
 }

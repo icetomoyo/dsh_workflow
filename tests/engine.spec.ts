@@ -27,7 +27,7 @@ function config(overrides: Partial<ResolvedWorkflowConfig> = {}): ResolvedWorkfl
     },
     readOnlyToolFilter: { deny: ['write', 'shell'] }, approvalMode: 'never',
     availableTools: ['read'], availableMcp: ['docs'], availableSkills: ['review'],
-    maxRetainedRuns: 20, pluginVersion: '0.1.0', dshVersion: '0.0.1-rc.2', ...overrides,
+    maxRetainedRuns: 20, pluginVersion: '0.1.0', dshVersion: '0.1.0-rc.5', ...overrides,
   }
 }
 
@@ -36,7 +36,7 @@ function module(source: string, overrides: Record<string, unknown> = {}): Workfl
     name: 'engine-test', description: 'Exercise the workflow engine.', phases: ['work', 'verify'],
     readOnly: true, maxAgents: 8, maxConcurrency: 4, patterns: ['fan-out-and-synthesize'], ...overrides,
   })
-  const capsule = createWorkflowCapsule({ minDshVersion: '0.0.1-rc.2', manifest, source })
+  const capsule = createWorkflowCapsule({ minDshVersion: '0.1.0-rc.5', manifest, source })
   return { manifest, execution: 'capability-generated', source, capsule }
 }
 
@@ -441,7 +441,7 @@ describe('dynamic workflow engine', () => {
   it('fails preflight loudly for unmet environment and capability requirements', async () => {
     const fx = await fixture({ source: 'async function run(wf, args) { return true; }' })
     const capsule = createWorkflowCapsule({
-      minDshVersion: '0.0.1-rc.2', manifest: fx.module.manifest, source: fx.module.source!,
+      minDshVersion: '0.1.0-rc.5', manifest: fx.module.manifest, source: fx.module.source!,
       requires: { environment: ['worktree-capable'], tools: ['missing-tool'], mcp: ['missing-mcp'], skills: ['missing-skill'], userInteraction: true },
     })
     const input = { module: { ...fx.module, capsule }, source: 'inline' as const, parent: fx.parent }

@@ -3,27 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",
-    "types": ["node", "vitest/globals"],
-    "paths": {
-      "@deepseek-ai/cordis": ["../test-icetomoyo/vendor/cordis/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-agent": ["../test-icetomoyo/packages/core/agent/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-commands": ["../test-icetomoyo/packages/interaction/commands/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-llm": ["../test-icetomoyo/packages/llm/llm/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-session": ["../test-icetomoyo/packages/core/session/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-session-title": ["../test-icetomoyo/packages/session/session-title/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-session/types": ["../test-icetomoyo/packages/core/session/lib/types/types.d.ts"],
-      "@deepseek-ai/dsh-subagent": ["../test-icetomoyo/packages/subagent/subagent/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-system-prompt": ["../test-icetomoyo/packages/core/system-prompt/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-jobs": ["../test-icetomoyo/packages/jobs/jobs/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-tool-workflow/types": ["../test-icetomoyo/packages/workflow/tool-workflow/lib/types/types.d.ts"],
-      "@deepseek-ai/dsh-tools": ["../test-icetomoyo/packages/core/tools/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-user-approval": ["../test-icetomoyo/packages/interaction/user-approval/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-user-questions": ["../test-icetomoyo/packages/interaction/user-questions/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-workflow": ["../test-icetomoyo/packages/workflow/workflow/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-workflow/types": ["../test-icetomoyo/packages/workflow/workflow/lib/types/types.d.ts"],
-      "@deepseek-ai/dsh-workflow-worker-thread": ["../test-icetomoyo/packages/workflow/workflow-worker-thread/lib/types/index.d.ts"],
-      "@deepseek-ai/schemastery": ["../test-icetomoyo/vendor/schemastery/lib/types/index.d.ts"]
-    }
+    "types": ["node", "vitest/globals"]
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
 }

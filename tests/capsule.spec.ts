@@ -30,13 +30,13 @@ function valid() {
     format: DSH_WORKFLOW_FORMAT,
     version: DSH_WORKFLOW_VERSION,
     workflowApiVersion: DSH_WORKFLOW_API_VERSION,
-    minDshVersion: '0.0.1-rc.2',
+    minDshVersion: '0.1.0-rc.5',
     manifest,
     source,
     intent: { taskClass: 'review', patterns: manifest.patterns, reusableFor: ['large reviews'] },
     inputs: { description: 'Object with target paths.', examples: [{ targets: ['src'] }] },
     requires: { environment: ['git-repo'], tools: ['read'], modelTiers: ['balanced', 'deep'] },
-    provenance: { createdAt: '2026-08-13T00:00:00.000Z', dshVersion: '0.0.1-rc.2', pluginVersion: '0.1.0' },
+    provenance: { createdAt: '2026-08-13T00:00:00.000Z', dshVersion: '0.1.0-rc.5', pluginVersion: '0.1.0' },
   }
 }
 
@@ -76,7 +76,7 @@ describe('workflow capsule and manifest', () => {
   })
 
   it('creates a canonical capsule without admitting unknown fields', () => {
-    const capsule = createWorkflowCapsule({ minDshVersion: '0.0.1-rc.2', manifest: validateWorkflowCapsule(valid()).manifest, source })
+    const capsule = createWorkflowCapsule({ minDshVersion: '0.1.0-rc.5', manifest: validateWorkflowCapsule(valid()).manifest, source })
     expect(capsule).toMatchObject({ format: 'dsh.workflow', version: 1, workflowApiVersion: 1 })
   })
 })

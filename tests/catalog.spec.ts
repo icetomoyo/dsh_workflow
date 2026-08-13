@@ -10,7 +10,7 @@ import { createWorkflowCapsule, validateWorkflowManifest } from '../src/capsule.
 
 function capsule(name: string, description: string) {
   return createWorkflowCapsule({
-    minDshVersion: '0.0.1-rc.2',
+    minDshVersion: '0.1.0-rc.5',
     manifest: validateWorkflowManifest({ name, description, phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 2, patterns: ['fan-out-and-synthesize'] }),
     source: 'async function run(wf, args) { return await wf.runAgent({ name: "worker", prompt: String(args.request), readOnly: true }); }',
   })

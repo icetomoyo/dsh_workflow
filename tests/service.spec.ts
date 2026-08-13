@@ -17,7 +17,7 @@ function config(root: string): ResolvedWorkflowConfig {
     defaultProvider: 'spawn', synthesisProvider: 'spawn',
     modelTiers: { fast: { subagentProvider: 'spawn', maxTokens: 10 }, balanced: { subagentProvider: 'spawn', maxTokens: 20 }, deep: { subagentProvider: 'spawn', maxTokens: 30 } },
     readOnlyToolFilter: { deny: ['write'] }, approvalMode: 'never', availableTools: [], availableMcp: [], availableSkills: [],
-    maxRetainedRuns: 20, pluginVersion: '0.1.0', dshVersion: '0.0.1-rc.2',
+    maxRetainedRuns: 20, pluginVersion: '0.1.0', dshVersion: '0.1.0-rc.5',
   }
 }
 

@@ -1,7 +1,7 @@
 {
-  "repository": "https://github.com/dsh2026/test-icetomoyo.git",
-  "branch": "snapshots/20260812T172954Z-final-unwatermarked-5fa48343c7",
-  "commit": "7b9644f2b664e46c9518506035aa6c8d5af4d8e8",
-  "version": "0.0.1-rc.2",
-  "testedAt": "2026-08-13T10:01:44+08:00"
+  "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
+  "branch": "master",
+  "commit": "47f943859bef60e4160492346772ded9b24f765a",
+  "version": "0.1.0-rc.5",
+  "testedAt": "2026-08-14T07:35:00+08:00"
 }

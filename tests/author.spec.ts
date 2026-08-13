@@ -14,7 +14,7 @@ function config(): ResolvedWorkflowConfig {
     defaultProvider: 'spawn', synthesisProvider: 'spawn',
     modelTiers: { fast: { subagentProvider: 'scout', provider: 'fast-llm', model: 'quick', maxTokens: 100 }, balanced: { subagentProvider: 'spawn', maxTokens: 200 }, deep: { subagentProvider: 'author', provider: 'deep-llm', model: 'deep', maxTokens: 300 } },
     readOnlyToolFilter: { deny: ['write', 'shell'] }, approvalMode: 'never', availableTools: [], availableMcp: [], availableSkills: [],
-    maxRetainedRuns: 20, pluginVersion: '0.1.0', dshVersion: '0.0.1-rc.2',
+    maxRetainedRuns: 20, pluginVersion: '0.1.0', dshVersion: '0.1.0-rc.5',
   }
 }
 
@@ -50,7 +50,7 @@ describe('scout-then-author workflow generation', () => {
   it('uses read-only model-tier routes and returns a validated capsule', async () => {
     const fake = service([undefined, authored()])
     const result = await authorWorkflowCapsule({ request: 'build it', parent, subagents: fake.value, config: config(), signal: new AbortController().signal })
-    expect(result.capsule).toMatchObject({ format: 'dsh.workflow', manifest: { name: 'authored' }, provenance: { dshVersion: '0.0.1-rc.2', pluginVersion: '0.1.0' } })
+    expect(result.capsule).toMatchObject({ format: 'dsh.workflow', manifest: { name: 'authored' }, provenance: { dshVersion: '0.1.0-rc.5', pluginVersion: '0.1.0' } })
     expect(fake.start).toHaveBeenCalledTimes(2)
     expect(fake.start.mock.calls[0]).toMatchObject(['scout', { toolFilter: { allow: ['read'] }, agentOptions: { provider: 'fast-llm', model: 'quick', maxTokens: 100 } }])
     expect(fake.start.mock.calls[1]).toMatchObject(['author', { outputSchema: expect.any(Object), agentOptions: { provider: 'deep-llm', model: 'deep', maxTokens: 300 } }])

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const compatibility = JSON.parse(readFileSync(new URL('../compatibility.json', import.meta.url), 'utf8'))
-const snapshot = resolve(process.env.DSH_SNAPSHOT_DIR ?? '../test-icetomoyo')
+const snapshot = resolve(process.env.DSH_SNAPSHOT_DIR ?? '../deepseek-harness')
 const actual = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: snapshot, encoding: 'utf8' }).trim()
 
 if (actual !== compatibility.commit) {

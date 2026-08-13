@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 
-const snapshot = resolve(process.env['DSH_SNAPSHOT_DIR'] ?? '../test-icetomoyo')
+const snapshot = resolve(process.env['DSH_SNAPSHOT_DIR'] ?? '../deepseek-harness')
 if (!existsSync(resolve(snapshot, 'package.json'))) {
   throw new Error(`DSH snapshot not found at ${snapshot}; set DSH_SNAPSHOT_DIR`)
 }

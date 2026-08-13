@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const snapshot = resolve(process.env.DSH_SNAPSHOT_DIR ?? '../test-icetomoyo')
+const snapshot = resolve(process.env.DSH_SNAPSHOT_DIR ?? '../deepseek-harness')
 const runtimePath = resolve(snapshot, 'packages/client/runtime/lib/types/client/index.js')
 const workflowPath = resolve(snapshot, 'packages/client/ui-workflow-run/lib/types/client/workflow-definition.js')
 for (const path of [runtimePath, workflowPath]) {

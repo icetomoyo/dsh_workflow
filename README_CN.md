@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
-  <img alt="DSH 0.0.1-rc.2" src="https://img.shields.io/badge/DSH-0.0.1--rc.2-8257D0.svg">
+  <img alt="DSH 0.1.0-rc.5" src="https://img.shields.io/badge/DSH-0.1.0--rc.5-8257D0.svg">
   <img alt="Tests 179" src="https://img.shields.io/badge/tests-179%20passing-brightgreen.svg">
   <img alt="KodaX workflow parity" src="https://img.shields.io/badge/workflow-KodaX%20parity-0A84FF.svg">
 </p>
@@ -209,7 +209,7 @@ workflow 启动和 `run_workflow` 默认立即返回 `{ runId, status, jobId? }`
 
 ## 开发与验证
 
-仓库旁需有兼容 DSH checkout，默认路径为 `../test-icetomoyo`，也可设置 `DSH_SNAPSHOT_DIR`。
+仓库旁需有兼容的官方 DeepSeek Harness checkout，默认路径为 `../deepseek-harness`；也可把 `DSH_SNAPSHOT_DIR` 设置为它的绝对路径。
 
 ```sh
 pnpm install
@@ -231,7 +231,7 @@ pnpm pack
 
 ## 致谢
 
-- [DeepSeek Harness](https://github.com/dsh2026/test-icetomoyo) 提供 Harness、插件和子 Agent 能力面。
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供 Harness、插件和子 Agent 能力面。
 - [KodaX](https://github.com/icetomoyo/KodaX) 提供 workflow 产品设计的行为参考；本插件为独立实现。
 - `dsh-external` 社区插件为 bundle 安装、验证、安全边界和文档结构提供了实践参考。
 

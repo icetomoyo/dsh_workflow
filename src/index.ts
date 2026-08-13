@@ -149,7 +149,7 @@ function resolveConfig(config: Config): ResolvedPluginConfig {
     availableSkills: [...(config.availableSkills ?? [])],
     maxRetainedRuns: config.maxRetainedRuns ?? 500,
     pluginVersion: '0.1.2',
-    dshVersion: '0.0.1-rc.2',
+    dshVersion: '0.1.0-rc.5',
   }
 }
 

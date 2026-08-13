@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Move the compatibility baseline from the private beta snapshot repository to the public [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness) repository at `master@47f943859b` (`0.1.0-rc.5`), accept the public `0.1.x` DSH package family, and compile development code against the published npm packages instead of a machine-local beta checkout.
+
 ---
 
 ## [0.1.2] - 2026-08-13
