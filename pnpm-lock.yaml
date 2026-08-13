@@ -30,6 +30,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: link:../test-icetomoyo/packages/core/session
         version: link:../test-icetomoyo/packages/core/session
+      '@deepseek-ai/dsh-session-title':
+        specifier: link:../test-icetomoyo/packages/session/session-title
+        version: link:../test-icetomoyo/packages/session/session-title
       '@deepseek-ai/dsh-subagent':
         specifier: link:../test-icetomoyo/packages/subagent/subagent
         version: link:../test-icetomoyo/packages/subagent/subagent

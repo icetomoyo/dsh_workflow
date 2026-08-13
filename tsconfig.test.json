@@ -10,6 +10,7 @@
       "@deepseek-ai/dsh-commands": ["../test-icetomoyo/packages/interaction/commands/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-llm": ["../test-icetomoyo/packages/llm/llm/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-session": ["../test-icetomoyo/packages/core/session/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-session-title": ["../test-icetomoyo/packages/session/session-title/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-session/types": ["../test-icetomoyo/packages/core/session/lib/types/types.d.ts"],
       "@deepseek-ai/dsh-subagent": ["../test-icetomoyo/packages/subagent/subagent/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-system-prompt": ["../test-icetomoyo/packages/core/system-prompt/lib/types/index.d.ts"],

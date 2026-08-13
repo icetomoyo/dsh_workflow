@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/workflow",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "KodaX-parity dynamic workflow harness for DeepSeek Harness",
   "type": "module",
   "main": "lib/index.js",
@@ -37,6 +37,7 @@
     "reference.json",
     "README.md",
     "README.en.md",
+    "CHANGELOG.md",
     "docs/**/*.md",
     "examples/*.json",
     "LICENSE"
@@ -102,6 +103,7 @@
     "@deepseek-ai/dsh-jobs": "link:../test-icetomoyo/packages/jobs/jobs",
     "@deepseek-ai/dsh-llm": "link:../test-icetomoyo/packages/llm/llm",
     "@deepseek-ai/dsh-session": "link:../test-icetomoyo/packages/core/session",
+    "@deepseek-ai/dsh-session-title": "link:../test-icetomoyo/packages/session/session-title",
     "@deepseek-ai/dsh-subagent": "link:../test-icetomoyo/packages/subagent/subagent",
     "@deepseek-ai/dsh-system-prompt": "link:../test-icetomoyo/packages/core/system-prompt",
     "@deepseek-ai/dsh-tools": "link:../test-icetomoyo/packages/core/tools",

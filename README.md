@@ -7,7 +7,7 @@
 <p align="center">
   <a href="LICENSE"><img alt="License MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
   <img alt="DSH 0.0.1-rc.2" src="https://img.shields.io/badge/DSH-0.0.1--rc.2-8257D0.svg">
-  <img alt="Tests 149" src="https://img.shields.io/badge/tests-149%20passing-brightgreen.svg">
+  <img alt="Tests 155" src="https://img.shields.io/badge/tests-155%20passing-brightgreen.svg">
   <img alt="KodaX workflow parity" src="https://img.shields.io/badge/workflow-KodaX%20parity-0A84FF.svg">
 </p>
 
@@ -80,7 +80,9 @@ dsh --profile web --dump-config
 /workflow runs
 ```
 
-`/workflow create <request>` 和未知名称的 `/workflow <自然语言请求>` 会像 KodaX 一样立即结束命令处理，并把显式 workflow 意图交给当前主 Agent。主 Agent 先用自身工具调查真实 workspace，再以 `source + manifest` 调用 `run_workflow` 生成和启动流程；长时间 scout/authoring 不会把斜杠命令卡在 `command/run`。这条命令只为对应消息中的第一次 inline workflow 提供一次性显式授权，内部 relay、后续直接用户消息或重复调用都不能复用；工具产生的 scouting context 不会误撤销它。`approvalMode: always` 和 trusted-local workflow 的审批仍然保留。由于 authoring 由当前 Agent turn 接管，create/free-text 形式不接受 `--wait`；需要同步等待时请对命名 workflow、rerun、review 使用 `--wait`，或在工具调用中使用 `wait: true`。
+`/workflow create <request>` 和未知名称的 `/workflow <自然语言请求>` 会像 KodaX 一样立即结束命令处理，并把显式 workflow 意图交给当前主 Agent。用户原始 query 以真正的 user message 进入 Session，所以会在对话中显示、参与 DSH 会话标题生成并可在左侧工作区中按标题识别；内部 authoring contract 则作为独立的折叠 plugin context 交给模型，不会污染标题或用户气泡。主 Agent 先用自身工具调查真实 workspace，再以 `source + manifest` 调用 `run_workflow` 生成和启动流程；长时间 scout/authoring 不会把斜杠命令卡在 `command/run`。这条命令只为对应消息中的第一次 inline workflow 提供一次性显式授权，内部 relay、后续直接用户消息或重复调用都不能复用；工具产生的 scouting context 不会误撤销它。`approvalMode: always` 和 trusted-local workflow 的审批仍然保留。由于 authoring 由当前 Agent turn 接管，create/free-text 形式不接受 `--wait`；需要同步等待时请对命名 workflow、rerun、review 使用 `--wait`，或在工具调用中使用 `wait: true`。
+
+> DSH Web 的左侧工作区在“手动排序”且会话数超过 5 条时会折叠其余会话；新 workflow 会话已归属对应工作区，必要时点击“展开其余 N 个会话”，或将视图排序切换为“最近更新”让活动会话自动前置。
 
 workflow 启动和 `run_workflow` 默认立即返回 `{ runId, status, jobId? }`，不会让一个长流程占住当前 turn；支持等待的子命令显式传入 `--wait`（工具参数为 `wait: true`）才等待终态。`/workflow show` 默认显示最新 run，`/workflow stop` 默认停止当前活动 run。
 
@@ -211,7 +213,7 @@ workflow 启动和 `run_workflow` 默认立即返回 `{ runId, status, jobId? }`
 
 ```sh
 pnpm install
-pnpm check           # 快照 pin + 149 tests + typecheck + build
+pnpm check           # 快照 pin + 155 tests + typecheck + build
 pnpm test:coverage   # 语句/分支/函数/行全局阈值均为 80%
 pnpm pack
 ```

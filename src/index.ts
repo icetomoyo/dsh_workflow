@@ -147,7 +147,7 @@ function resolveConfig(config: Config): ResolvedPluginConfig {
     availableMcp: [...(config.availableMcp ?? [])],
     availableSkills: [...(config.availableSkills ?? [])],
     maxRetainedRuns: config.maxRetainedRuns ?? 500,
-    pluginVersion: '0.1.0',
+    pluginVersion: '0.1.1',
     dshVersion: '0.0.1-rc.2',
   }
 }
@@ -201,7 +201,7 @@ function handoffWorkflowRequest(agent: Agent, request: string, grants: WorkflowH
   if (/(?:^|\s)--wait(?:\s|$)/u.test(trimmed)) {
     throw new Error('--wait is not supported for /workflow create or free-text requests; the current Agent owns authoring and reports progress in its turn')
   }
-  const message = createUserMessage({
+  agent.inject(createUserMessage({
     content: [{
       type: 'text',
       text: [
@@ -210,11 +210,13 @@ function handoffWorkflowRequest(agent: Agent, request: string, grants: WorkflowH
         'Authoring contract (you do not need to search for it): source is JavaScript defining async function run(wf, args). Use wf.phase(name, fn), wf.runAgent({ name, prompt, readOnly, modelHint, outputSchema? }), wf.parallel(thunks, { concurrency }), and wf.synthesize({ inputs, rubric }). Return the final value from run.',
         'The manifest is JSON with exactly: name (lowercase kebab-case), description, phases (non-empty string array matching source phases), readOnly, maxAgents, maxConcurrency, and patterns. patterns entries must be one or more of classify-and-act, fan-out-and-synthesize, adversarial-verification, generate-and-filter, tournament, loop-until-done. Optional fields: plannedAgents, tokenBudget, mayUseWorktree, inputSchema.',
         `Minimal example: source \`async function run(wf,args){return await wf.phase("analyze",async()=>{const r=await wf.runAgent({name:"analyst",prompt:String(args?.request??"analyze the task"),readOnly:true,modelHint:"balanced"});return r?.finalText??"no result"})}\` with manifest \`{"name":"focused-analysis","description":"Analyze with one specialist.","phases":["analyze"],"readOnly":true,"maxAgents":1,"maxConcurrency":1,"patterns":["classify-and-act"]}\`. Adapt it to the user's task and pass the original request via args.`,
-        '',
-        trimmed,
       ].join('\n'),
     }],
     source: { kind: 'plugin', plugin: '@dsh-external/workflow', form: 'relay' },
+  }))
+  const message = createUserMessage({
+    content: [{ type: 'text', text: trimmed }],
+    source: { kind: 'user' },
   })
   grants.set(agent, String(message.id))
   agent.steer(message)
@@ -231,9 +233,7 @@ function hasCurrentWorkflowHandoff(agent: Agent, grants: WorkflowHandoffGrants):
     if (event.type !== 'user/message') continue
     const source = event.data.source
     if (String(event.data.id) === expectedMessageId) {
-      return source.kind === 'plugin'
-        && source.plugin === '@dsh-external/workflow'
-        && source.form === 'relay'
+      return source.kind === 'user'
     }
     if (source.kind === 'user') return false
   }
@@ -571,7 +571,7 @@ async function command(service: DynamicWorkflowService, agent: Agent, raw: strin
       const run = await service.startNamed(agent, head, parseJsonOrText(argsText), signal, true)
       return { kind: 'success', text: JSON.stringify(await runResult(service, agent, run, wantsWait), null, 2) }
     }
-    return handoffWorkflowRequest(agent, [head, tail].filter(Boolean).join(' '), grants)
+    return handoffWorkflowRequest(agent, raw, grants)
   } catch (error) {
     return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
   }
