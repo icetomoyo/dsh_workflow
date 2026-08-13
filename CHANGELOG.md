@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+---
+
+## [0.1.3] - 2026-08-14
+
 ### Changed
 
 - Move the compatibility baseline from the private beta snapshot repository to the public [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness) repository at `master@47f943859b` (`0.1.0-rc.5`), accept the public `0.1.x` DSH package family, and compile development code against the published npm packages instead of a machine-local beta checkout.
@@ -34,4 +38,4 @@
 
 - Initial KodaX-parity dynamic workflow layer for DeepSeek Harness.
 
-<!-- last-sync: f6cef1442dca3a47e1b132741b599a2d4bdbc8b8 -->
+<!-- last-sync: 47966d66b344f833f7f627f1bd5e203463b5662e -->
