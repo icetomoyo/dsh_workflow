@@ -4,7 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { Context, Service } from '@deepseek-ai/cordis'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
 import workflowPlugin, { apply, name, type Config } from '../src/index.js'
 import type { WorkflowRun, WorkflowRunSnapshot } from '../src/types.js'
@@ -51,7 +53,7 @@ function fixture(pluginConfig: Config = { approvalMode: 'never', maxAgents: 7, m
   return { ctx, tools: tools as Array<{ name: string; output: { render(args: unknown, value: unknown): unknown }; execute(args: Record<string, unknown>, exec: unknown): Promise<unknown> }>, command: () => command!, sections, service }
 }
 
-const agent = { session: { header: { cwd: 'C:\\workspace' } } } as unknown as Agent
+const agent = { session: { header: { cwd: 'C:\\workspace' } }, steer: vi.fn() } as unknown as Agent
 const exec = { agent, signal: new AbortController().signal }
 
 describe('Cordis plugin entrypoint', () => {
@@ -114,7 +116,10 @@ describe('Cordis plugin entrypoint', () => {
     expect(name).toBe('dsh-external-workflow')
     expect(fx.ctx.plugin).toHaveBeenCalledOnce()
     expect(fx.tools.map(tool => tool.name)).toEqual(['workflow_list', 'run_workflow', 'workflow_manage'])
-    expect(fx.sections).toEqual([expect.objectContaining({ name: 'tool:dynamic-workflows', text: expect.stringContaining('reusable multi-agent orchestration') })])
+    expect(fx.sections).toEqual([expect.objectContaining({
+      name: 'tool:dynamic-workflows',
+      text: expect.stringMatching(/workflow relay[\s\S]*source \+ manifest[\s\S]*do not use request mode/u),
+    })])
     expect(fx.command()).toBeDefined()
   })
 
@@ -147,6 +152,119 @@ describe('Cordis plugin entrypoint', () => {
     await expect(execute.execute({ source: 'async function run(wf, args) {}' }, exec)).rejects.toThrow(/requires manifest/u)
     expect(fx.service.startNamed).toHaveBeenCalledOnce()
     expect(fx.service.create).toHaveBeenCalledWith(agent, 'create one', exec.signal, { scope: 'project' })
+  })
+
+  it('grants exactly one inline run to the exact /workflow handoff message', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    expect(await fx.command().handler({ agent: explicitAgent, rawInput: 'inspect then coordinate', signal: exec.signal }))
+      .toMatchObject({ kind: 'success' })
+    const handoff = steer.mock.calls[0]![0] as { readonly id: string; readonly source: Record<string, unknown> }
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: handoff })
+    const inline = {
+      source: 'async function run(wf, args) { return args; }',
+      manifest: { name: 'inline', description: 'inline', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
+      args: {},
+    }
+
+    await execute.execute(inline, { agent: explicitAgent, signal: exec.signal })
+    await execute.execute(inline, { agent: explicitAgent, signal: exec.signal })
+
+    expect(fx.service.startInline.mock.calls.at(-2)).toEqual([explicitAgent, expect.anything(), {}, exec.signal, 'inline', true])
+    expect(fx.service.startInline.mock.calls.at(-1)).toEqual([explicitAgent, expect.anything(), {}, exec.signal, 'inline', false])
+  })
+
+  it('does not consume the handoff grant when inline validation fails', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'author then correct if needed', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+
+    await expect(execute.execute({
+      source: 'async function run(wf, args) { return args; }',
+      manifest: { name: '', description: 'invalid empty name', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
+    }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow()
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+
+    await execute.execute({
+      source: 'async function run(wf, args) { return args; }',
+      manifest: { name: 'corrected', description: 'corrected', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
+      args: {},
+    }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), {}, exec.signal, 'inline', true)
+  })
+
+  it('rejects forged, stale, superseded, and request-mode command handoffs', async () => {
+    const inline = {
+      source: 'async function run(wf, args) { return args; }',
+      manifest: { name: 'inline', description: 'inline', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
+      args: {},
+    }
+    const forged = fixture({ approvalMode: 'generated-and-local' })
+    const forgedAgent = { session: { header: { cwd: 'C:\\workspace' }, events: [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { id: 'forged', source: { kind: 'plugin', plugin: '@dsh-external/workflow', form: 'relay' } } },
+    ] } } as unknown as Agent
+    await forged.tools.find(tool => tool.name === 'run_workflow')!.execute(inline, { agent: forgedAgent, signal: exec.signal })
+    expect(forged.service.startInline).toHaveBeenLastCalledWith(forgedAgent, expect.anything(), {}, exec.signal, 'inline', false)
+
+    for (const suffix of ['stale', 'superseded'] as const) {
+      const fx = fixture({ approvalMode: 'generated-and-local' })
+      fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+      const events: Array<{ type: string; data: Record<string, unknown> }> = []
+      const steer = vi.fn()
+      const liveAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, steer } as unknown as Agent
+      await fx.command().handler({ agent: liveAgent, rawInput: `coordinate ${suffix}`, signal: exec.signal })
+      const handoff = steer.mock.calls[0]![0] as { readonly id: string; readonly source: Record<string, unknown> }
+      events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: handoff })
+      if (suffix === 'stale') events.push({ type: 'turn/end', data: { turn: 1 } }, { type: 'turn/start', data: { turn: 2 } })
+      else events.push({ type: 'user/message', data: { id: 'new-user-message', source: { kind: 'user' } } })
+      await fx.tools.find(tool => tool.name === 'run_workflow')!.execute(inline, { agent: liveAgent, signal: exec.signal })
+      expect(fx.service.startInline).toHaveBeenLastCalledWith(liveAgent, expect.anything(), {}, exec.signal, 'inline', false)
+    }
+
+    const requestFx = fixture({ approvalMode: 'generated-and-local' })
+    requestFx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const requestEvents: Array<{ type: string; data: Record<string, unknown> }> = []
+    const requestSteer = vi.fn()
+    const requestAgent = { session: { header: { cwd: 'C:\\workspace' }, events: requestEvents }, steer: requestSteer } as unknown as Agent
+    await requestFx.command().handler({ agent: requestAgent, rawInput: 'coordinate inline only', signal: exec.signal })
+    requestEvents.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: requestSteer.mock.calls[0]![0] })
+    requestEvents.push({ type: 'user/message', data: { id: 'tool-context', source: { kind: 'plugin', plugin: 'scouting-tool', form: 'notice', summary: 'scouting evidence added' } } })
+    await expect(requestFx.tools.find(tool => tool.name === 'run_workflow')!.execute({ request: 'start another author pipeline' }, { agent: requestAgent, signal: exec.signal }))
+      .rejects.toThrow(/source \+ manifest/u)
+    expect(requestFx.service.create).not.toHaveBeenCalled()
+    await requestFx.tools.find(tool => tool.name === 'run_workflow')!.execute(inline, { agent: requestAgent, signal: exec.signal })
+    expect(requestFx.service.startInline).toHaveBeenLastCalledWith(requestAgent, expect.anything(), {}, exec.signal, 'inline', true)
+  })
+
+  it('preserves always approval and trusted-local named workflow gates', async () => {
+    const always = fixture({ approvalMode: 'always' })
+    always.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, steer } as unknown as Agent
+    await always.command().handler({ agent: explicitAgent, rawInput: 'coordinate carefully', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const alwaysRun = always.tools.find(tool => tool.name === 'run_workflow')!
+    await alwaysRun.execute({
+      source: 'async function run(wf, args) { return args; }',
+      manifest: { name: 'inline', description: 'inline', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
+      args: {},
+    }, { agent: explicitAgent, signal: exec.signal })
+    expect(always.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), {}, exec.signal, 'inline', false)
+
+    const named = fixture({ approvalMode: 'generated-and-local' })
+    await named.tools.find(tool => tool.name === 'run_workflow')!.execute({ name: 'known', args: {} }, { agent: explicitAgent, signal: exec.signal })
+    expect(named.service.startNamed).toHaveBeenLastCalledWith(explicitAgent, 'known', {}, exec.signal)
   })
 
   it('routes every durable management action', async () => {
@@ -195,6 +313,76 @@ describe('Cordis plugin entrypoint', () => {
     expect(fx.service.startNamed).toHaveBeenLastCalledWith(agent, 'known', { question: '"value"' }, exec.signal, true)
     fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
     expect((await invoke('unknown request')).kind).toBe('success')
+  })
+
+  it('hands a free-text /workflow request to the current agent without blocking on authoring', async () => {
+    const fx = fixture()
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    fx.service.create.mockImplementationOnce(async () => await new Promise<never>(() => {}))
+    const steer = vi.fn()
+    const liveAgent = { session: { header: { cwd: 'C:\\workspace' } }, steer } as unknown as Agent
+
+    const outcome = await Promise.race([
+      fx.command().handler({ agent: liveAgent, rawInput: '请 review 当前版本代码修改与提交，但是不要做任何修改', signal: exec.signal }),
+      new Promise<'timed-out'>(resolve => setTimeout(() => resolve('timed-out'), 50)),
+    ])
+
+    expect(outcome).not.toBe('timed-out')
+    expect(outcome).toMatchObject({ kind: 'success' })
+    expect(fx.service.create).not.toHaveBeenCalled()
+    expect(steer).toHaveBeenCalledOnce()
+    expect(steer.mock.calls[0]![0]).toMatchObject({ id: expect.any(String), source: { kind: 'plugin', plugin: '@dsh-external/workflow', form: 'relay' } })
+    expect((steer.mock.calls[0]![0] as { content: Array<{ text: string }> }).content[0]!.text).toContain('source + manifest (not request mode)')
+    await expect(fx.command().handler({ agent: liveAgent, rawInput: 'create do something --wait', signal: exec.signal }))
+      .resolves.toMatchObject({ kind: 'error', text: expect.stringContaining('--wait is not supported') })
+  })
+
+  it('completes the real DSH command lifecycle before the handed-off workflow runs', async () => {
+    const registeredTools: Array<{ name: string; execute(args: Record<string, unknown>, exec: unknown): Promise<unknown> }> = []
+    class StubSubagents extends Service { constructor(ctx: Context) { super(ctx, 'subagents') } }
+    class StubTools extends Service {
+      constructor(ctx: Context) { super(ctx, 'tools') }
+      register(value: { name: string; execute(args: Record<string, unknown>, exec: unknown): Promise<unknown> }): () => void { registeredTools.push(value); return () => {} }
+      schemas(): unknown[] { return [] }
+    }
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'dsh-workflow-command-lifecycle-'))
+    const ctx = new Context()
+    const sessions = await ctx.plugin(SessionStore)
+    const commands = await ctx.plugin(CommandRuntime)
+    const subagents = await ctx.plugin(StubSubagents)
+    const tools = await ctx.plugin(StubTools)
+    const workflow = await ctx.plugin(workflowPlugin, { approvalMode: 'generated-and-local' })
+    try {
+      const session = ctx.sessions.create(SessionId(`workflow-command-${Date.now()}`), { meta: { cwd } })
+      const liveAgent = {
+        id: session.id, ctx, session,
+        steer(message: Parameters<Agent['steer']>[0]) {
+          session.append('turn/start', { turn: 1 })
+          session.append('user/message', message, { surfaceOp: 'append' })
+        },
+      } as unknown as Agent
+
+      const outcome = await Promise.race([
+        ctx.commands.execute(liveAgent, '/workflow inspect and coordinate', exec.signal),
+        new Promise<'timed-out'>(resolve => setTimeout(() => resolve('timed-out'), 250)),
+      ])
+      expect(outcome).not.toBe('timed-out')
+      expect(session.events.filter(event => event.type === 'command/run' || event.type === 'command/done').map(event => event.type))
+        .toEqual(['command/run', 'command/done'])
+      const handoff = session.events.find(event => event.type === 'user/message')
+      expect(handoff?.type === 'user/message' ? handoff.data.source : undefined)
+        .toMatchObject({ kind: 'plugin', plugin: '@dsh-external/workflow', form: 'relay' })
+
+      const runTool = registeredTools.find(tool => tool.name === 'run_workflow')!
+      const result = await runTool.execute({
+        source: 'async function run(wf, args) { return { ok: true }; }', wait: true,
+        manifest: { name: 'lifecycle-proof', description: 'lifecycle proof', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
+      }, { agent: liveAgent, signal: exec.signal }) as { status: string; result: unknown }
+      expect(result).toMatchObject({ status: 'completed', result: { ok: true } })
+    } finally {
+      await workflow.dispose(); await tools.dispose(); await subagents.dispose(); await commands.dispose(); await sessions.dispose()
+      await rm(cwd, { recursive: true, force: true })
+    }
   })
 
   it('captures immutable Git evidence and starts the built-in scoped review from /workflow review', async () => {

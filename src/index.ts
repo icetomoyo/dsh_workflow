@@ -5,6 +5,7 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandResult } from '@deepseek-ai/dsh-commands'
 import type { JobRegistry } from '@deepseek-ai/dsh-jobs'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ApprovalService } from '@deepseek-ai/dsh-user-approval'
 import type { UserQuestionService } from '@deepseek-ai/dsh-user-questions'
@@ -190,6 +191,59 @@ function parseJsonOrText(raw: string): unknown {
     try { return JSON.parse(trimmed) as unknown } catch { return { question: trimmed } }
   }
   return { question: trimmed }
+}
+
+type WorkflowHandoffGrants = WeakMap<Agent, string>
+
+function handoffWorkflowRequest(agent: Agent, request: string, grants: WorkflowHandoffGrants): CommandResult {
+  const trimmed = request.trim()
+  if (trimmed.length === 0) throw new Error('create requires a workflow request')
+  if (/(?:^|\s)--wait(?:\s|$)/u.test(trimmed)) {
+    throw new Error('--wait is not supported for /workflow create or free-text requests; the current Agent owns authoring and reports progress in its turn')
+  }
+  const message = createUserMessage({
+    content: [{
+      type: 'text',
+      text: [
+        'Set up and run a multi-agent workflow for this task.',
+        `First investigate the relevant files and sub-problems with your own tools, then author and run it with run_workflow using source + manifest (not request mode). Bake concrete findings such as exact paths, comparison dimensions, constraints, and a real outputSchema into the child prompts instead of re-delegating the scouting.`,
+        'Authoring contract (you do not need to search for it): source is JavaScript defining async function run(wf, args). Use wf.phase(name, fn), wf.runAgent({ name, prompt, readOnly, modelHint, outputSchema? }), wf.parallel(thunks, { concurrency }), and wf.synthesize({ inputs, rubric }). Return the final value from run.',
+        'The manifest is JSON with exactly: name (lowercase kebab-case), description, phases (non-empty string array matching source phases), readOnly, maxAgents, maxConcurrency, and patterns. patterns entries must be one or more of classify-and-act, fan-out-and-synthesize, adversarial-verification, generate-and-filter, tournament, loop-until-done. Optional fields: plannedAgents, tokenBudget, mayUseWorktree, inputSchema.',
+        `Minimal example: source \`async function run(wf,args){return await wf.phase("analyze",async()=>{const r=await wf.runAgent({name:"analyst",prompt:String(args?.request??"analyze the task"),readOnly:true,modelHint:"balanced"});return r?.finalText??"no result"})}\` with manifest \`{"name":"focused-analysis","description":"Analyze with one specialist.","phases":["analyze"],"readOnly":true,"maxAgents":1,"maxConcurrency":1,"patterns":["classify-and-act"]}\`. Adapt it to the user's task and pass the original request via args.`,
+        '',
+        trimmed,
+      ].join('\n'),
+    }],
+    source: { kind: 'plugin', plugin: '@dsh-external/workflow', form: 'relay' },
+  })
+  grants.set(agent, String(message.id))
+  agent.steer(message)
+  return { kind: 'success', text: 'Workflow request handed to the current agent.' }
+}
+
+function hasCurrentWorkflowHandoff(agent: Agent, grants: WorkflowHandoffGrants): boolean {
+  const expectedMessageId = grants.get(agent)
+  if (expectedMessageId === undefined) return false
+  const events = agent.session.events ?? []
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!
+    if (event.type === 'turn/start' || event.type === 'turn/end') return false
+    if (event.type !== 'user/message') continue
+    const source = event.data.source
+    if (String(event.data.id) === expectedMessageId) {
+      return source.kind === 'plugin'
+        && source.plugin === '@dsh-external/workflow'
+        && source.form === 'relay'
+    }
+    if (source.kind === 'user') return false
+  }
+  return false
+}
+
+function consumeCurrentWorkflowHandoff(agent: Agent, grants: WorkflowHandoffGrants): boolean {
+  if (!hasCurrentWorkflowHandoff(agent, grants)) return false
+  grants.delete(agent)
+  return true
 }
 
 function optionTokens(raw: string): string[] {
@@ -401,7 +455,7 @@ const HELP = `/workflow - reusable, governed multi-agent workflows
   /workflow revise [--replace] <runId|alias|savedName> <change>
   /workflow prune [--dry-run] [--keep N] [--older-than 7d|24h]`
 
-async function command(service: DynamicWorkflowService, agent: Agent, raw: string, signal: AbortSignal): Promise<CommandResult> {
+async function command(service: DynamicWorkflowService, agent: Agent, raw: string, signal: AbortSignal, grants: WorkflowHandoffGrants): Promise<CommandResult> {
   try {
     const { head, tail } = splitFirst(raw)
     if (head === '' || head === 'list') return { kind: 'success', text: JSON.stringify(await service.list(agent), null, 2) }
@@ -442,14 +496,7 @@ async function command(service: DynamicWorkflowService, agent: Agent, raw: strin
       return ok ? { kind: 'success', text: `${head} accepted for ${target}` } : { kind: 'error', text: `${head} is unavailable for ${target}` }
     }
     if (head === 'create') {
-      const wantsWait = /(?:^|\s)--wait(?:\s|$)/u.test(tail)
-      const request = tail.replace(/(?:^|\s)--wait(?:\s|$)/gu, ' ').trim()
-      if (request.length === 0) throw new Error('create requires a workflow request')
-      const authored = await service.create(agent, request, signal)
-      const approved = await service.confirm(agent, `Run generated workflow "${authored.capsule.manifest.name}"?`, JSON.stringify(authored.capsule.manifest, null, 2), signal)
-      if (!approved) return { kind: 'error', text: 'workflow cancelled' }
-      const run = await service.startInline(agent, { manifest: authored.capsule.manifest, execution: 'capability-generated', source: authored.capsule.source, capsule: authored.capsule }, {}, signal, 'inline', true)
-      return { kind: 'success', text: JSON.stringify(await runResult(service, agent, run, wantsWait), null, 2) }
+      return handoffWorkflowRequest(agent, tail, grants)
     }
     if (head === 'rerun' || head === 'resume-run') {
       const wantsWait = /(?:^|\s)--wait(?:\s|$)/u.test(tail)
@@ -524,7 +571,7 @@ async function command(service: DynamicWorkflowService, agent: Agent, raw: strin
       const run = await service.startNamed(agent, head, parseJsonOrText(argsText), signal, true)
       return { kind: 'success', text: JSON.stringify(await runResult(service, agent, run, wantsWait), null, 2) }
     }
-    return await command(service, agent, `create ${[head, tail].filter(Boolean).join(' ')}`, signal)
+    return handoffWorkflowRequest(agent, [head, tail].filter(Boolean).join(' '), grants)
   } catch (error) {
     return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
   }
@@ -532,6 +579,7 @@ async function command(service: DynamicWorkflowService, agent: Agent, raw: strin
 
 function installSurfaces(ctx: Context, resolved: ResolvedPluginConfig): void {
   const service = ctx.dynamicWorkflows
+  const workflowHandoffGrants: WorkflowHandoffGrants = new WeakMap()
 
   ctx.tools.register(defineTool({
     name: resolved.listToolName,
@@ -559,14 +607,20 @@ function installSurfaces(ctx: Context, resolved: ResolvedPluginConfig): void {
       const agent = requireAgent(exec.agent)
       const selected = [args.name, args.request, args.source].filter(value => value !== undefined)
       if (selected.length !== 1) throw new Error('run_workflow requires exactly one of name, request, or source')
+      const currentHandoff = hasCurrentWorkflowHandoff(agent, workflowHandoffGrants)
+      if (currentHandoff && args.request !== undefined) {
+        throw new Error('a /workflow command handoff must author inline source + manifest in the current Agent; request mode would start a second scout/author pipeline')
+      }
       let run: WorkflowRun
       if (args.name !== undefined) run = await service.startNamed(agent, args.name, args.args, exec.signal)
       else if (args.request !== undefined) {
         const authored = await service.create(agent, args.request, exec.signal, args.save_scope === undefined ? undefined : { scope: args.save_scope })
-        run = await service.startInline(agent, { manifest: authored.capsule.manifest, execution: 'capability-generated', source: authored.capsule.source, capsule: authored.capsule }, args.args, exec.signal)
+        run = await service.startInline(agent, { manifest: authored.capsule.manifest, execution: 'capability-generated', source: authored.capsule.source, capsule: authored.capsule }, args.args, exec.signal, 'inline', false)
       } else {
         if (args.manifest === undefined) throw new Error('inline workflow source requires manifest')
-        run = await service.startInline(agent, inlineModule(args.source!, args.manifest, resolved), args.args, exec.signal)
+        const module = inlineModule(args.source!, args.manifest, resolved)
+        const explicitIntent = consumeCurrentWorkflowHandoff(agent, workflowHandoffGrants) && resolved.approvalMode !== 'always'
+        run = await service.startInline(agent, module, args.args, exec.signal, 'inline', explicitIntent)
       }
       return await runResult(service, agent, run, args.wait === true || args.background === false) as never
     },
@@ -609,14 +663,14 @@ function installSurfaces(ctx: Context, resolved: ResolvedPluginConfig): void {
   ctx.inject(['systemPrompt'], child => {
     child.systemPrompt.section({
       name: 'tool:dynamic-workflows', order: 116,
-      text: `Use ${resolved.runToolName} only when the user explicitly requests a workflow or the work materially benefits from reusable multi-agent orchestration. Prefer a named workflow when one matches; use request authoring for a new reusable process. Use ${resolved.manageToolName} for lifecycle and durable results. Child effects remain subject to DSH tool visibility, sandbox, and approval policy.`,
+      text: `Use ${resolved.runToolName} only when the user explicitly requests a workflow or the work materially benefits from reusable multi-agent orchestration. Prefer a named workflow when one matches. For a workflow relay from @dsh-external/workflow, scout with the current Agent's tools and call ${resolved.runToolName} with source + manifest; do not use request mode. Outside a command handoff, request mode can author a new reusable process. Use ${resolved.manageToolName} for lifecycle and durable results. Child effects remain subject to DSH tool visibility, sandbox, and approval policy.`,
     })
   })
   ctx.inject(['commands'], child => {
     child.commands.register({
       name: 'workflow', description: 'Create, run, inspect, and manage dynamic multi-agent workflows.',
       input: { hint: '[help|list|create|runs|show|pause|resume|stop|rerun|save|rename|revise|delete|prune|name] ...' },
-      handler: invocation => command(service, invocation.agent, invocation.rawInput, invocation.signal),
+      handler: invocation => command(service, invocation.agent, invocation.rawInput, invocation.signal, workflowHandoffGrants),
     })
   })
 }

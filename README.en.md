@@ -40,7 +40,7 @@ Restart the profile, then try:
 
 The model-facing surface is `workflow_list`, `run_workflow`, and `workflow_manage`.
 
-Starts return `{ runId, status, jobId? }` immediately by default so a long process does not occupy the current turn. Use `/workflow ... --wait` or tool input `wait: true` only when a terminal outcome is required inline. `/workflow show` defaults to the latest run and `/workflow stop` defaults to the active run.
+Workflow starts return `{ runId, status, jobId? }` immediately by default so a long process does not occupy the current turn. Commands that support waiting accept `--wait`; tool input uses `wait: true`. `/workflow create <request>` and free-text requests are handed to the current Agent and therefore reject `--wait`. `/workflow show` defaults to the latest run and `/workflow stop` defaults to the active run.
 
 ## Capability surface
 
@@ -53,6 +53,7 @@ Starts return `{ runId, status, jobId? }` immediately by default so a long proce
 - Stable ProcessSnapshot, WorkflowOutcome, and AgentResult projections with progress, explicit unverified outcomes, verification evidence, routes, usage, artifacts, and replay origin.
 - Durable lifecycle controls through service APIs, tools, `/workflow`, DSH background jobs, and native `tool-workflow/*` Session events.
 - Scout-then-author generation with structured output, a three-attempt repair loop, source policy, quality lint, preflight, and approval.
+- `/workflow create <request>` and free-text `/workflow <request>` return from the command plane immediately and hand explicit Workflow intent to the current Agent, matching KodaX's Worker-owned scout-then-author path. The Agent investigates with its normal tools and then calls `run_workflow` with `source + manifest`, so authoring cannot strand the UI in `command/run`. The exact handed-off message grants one inline start once; internal relays, later direct user messages, and repeated calls cannot reuse it, while tool-produced scouting context does not revoke it by accident. `approvalMode: always` and trusted-local gates remain enforced.
 
 See the [complete parity contract](docs/KODAX_PARITY.md) for the evidence-backed capability matrix. The implementation references behavior only and does not copy KodaX's source-available code.
 
