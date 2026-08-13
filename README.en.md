@@ -53,7 +53,8 @@ Workflow starts return `{ runId, status, jobId? }` immediately by default so a l
 - Stable ProcessSnapshot, WorkflowOutcome, and AgentResult projections with progress, explicit unverified outcomes, verification evidence, routes, usage, artifacts, and replay origin.
 - Durable lifecycle controls through service APIs, tools, `/workflow`, DSH background jobs, and native `tool-workflow/*` Session events.
 - Scout-then-author generation with structured output, a three-attempt repair loop, source policy, quality lint, preflight, and approval.
-- `/workflow create <request>` and free-text `/workflow <request>` return from the command plane immediately and hand explicit Workflow intent to the current Agent, matching KodaX's Worker-owned scout-then-author path. The exact user query is delivered as a human Session message, so it is visible in chat, feeds DSH title generation, and identifies the session in its Workspace; the authoring contract is delivered separately as collapsed plugin context. The Agent investigates with its normal tools and then calls `run_workflow` with `source + manifest`, so authoring cannot strand the UI in `command/run`. The exact handed-off message grants one inline start once; internal relays, later direct user messages, and repeated calls cannot reuse it, while tool-produced scouting context does not revoke it by accident. `approvalMode: always` and trusted-local gates remain enforced. In DSH Web's manual-order view, Workspace groups with more than five sessions collapse the remainder; expand the group or choose Last updated to promote active sessions.
+- `/workflow create <request>` and free-text `/workflow <request>` return from the command plane immediately and hand explicit Workflow intent to the current Agent, matching KodaX's Worker-owned scout-then-author path. The exact user query is delivered as a human Session message, so it is visible in chat, feeds DSH title generation, and identifies the session in its Workspace; the authoring contract is delivered separately as collapsed plugin context. The Agent investigates with its normal tools and then calls `run_workflow` with `source + manifest`, so authoring cannot strand the UI in `command/run`. The exact handed-off message grants one inline start once, after a pre-launch smoke run validates the same child-task contract used by the engine. Invalid authored fields (for example a `modelHint` outside `fast | balanced | deep`) fail before a real child starts and leave the same-turn grant available for a corrected retry. Internal relays, later direct user messages, and repeated valid calls cannot reuse it, while tool-produced scouting context does not revoke it by accident. `approvalMode: always` and trusted-local gates remain enforced. In DSH Web's manual-order view, Workspace groups with more than five sessions collapse the remainder; expand the group or choose Last updated to promote active sessions.
+- Dynamic workflow starts are session-scoped native events. A background workflow therefore stays `running` when its launching tool step or Agent turn closes, and only its actual `tool-workflow/run-end` projects completion, failure, or cancellation instead of a false interruption.
 
 See the [complete parity contract](docs/KODAX_PARITY.md) for the evidence-backed capability matrix. The implementation references behavior only and does not copy KodaX's source-available code.
 
@@ -74,7 +75,7 @@ pnpm test:coverage
 pnpm pack
 ```
 
-The suite currently contains 155 tests and enforces 80% global statement, branch, function, and line coverage thresholds.
+The suite currently contains 179 tests and enforces 80% global statement, branch, function, and line coverage thresholds.
 
 ## Known limitations
 

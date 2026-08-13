@@ -207,8 +207,15 @@ export interface WorkflowSynthesis {
 }
 export declare const WORKFLOW_INTERNAL: unique symbol;
 export interface WorkflowInternalApi {
+    readonly parallelLimit?: number;
     beginPhase(name: string): number;
     endPhase(token: number): void;
+    beginParallel?(concurrency: number): void;
+    endParallel?(): void;
+    beginParallelLane?(lane: number): void;
+    endParallelLane?(lane: number): void;
+    beginConcurrentGroup?(concurrency: number): void;
+    endConcurrentGroup?(): void;
 }
 export interface WorkflowApi {
     readonly [WORKFLOW_INTERNAL]?: WorkflowInternalApi;

@@ -14,7 +14,8 @@ import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
-import { createWorkflowCapsule, validateWorkflowManifest } from './capsule.js'
+import { createWorkflowCapsule, validateWorkflowArgs, validateWorkflowManifest } from './capsule.js'
+import { smokeWorkflowCapsule } from './author.js'
 import { scopedReviewWorkflow, writeReviewPackets } from './scoped-review.js'
 import { DynamicWorkflowService } from './service.js'
 import type { ModelTierRoute, ResolvedWorkflowConfig, WorkflowModule, WorkflowRun, WorkflowRunSnapshot } from './types.js'
@@ -147,7 +148,7 @@ function resolveConfig(config: Config): ResolvedPluginConfig {
     availableMcp: [...(config.availableMcp ?? [])],
     availableSkills: [...(config.availableSkills ?? [])],
     maxRetainedRuns: config.maxRetainedRuns ?? 500,
-    pluginVersion: '0.1.1',
+    pluginVersion: '0.1.2',
     dshVersion: '0.0.1-rc.2',
   }
 }
@@ -207,7 +208,7 @@ function handoffWorkflowRequest(agent: Agent, request: string, grants: WorkflowH
       text: [
         'Set up and run a multi-agent workflow for this task.',
         `First investigate the relevant files and sub-problems with your own tools, then author and run it with run_workflow using source + manifest (not request mode). Bake concrete findings such as exact paths, comparison dimensions, constraints, and a real outputSchema into the child prompts instead of re-delegating the scouting.`,
-        'Authoring contract (you do not need to search for it): source is JavaScript defining async function run(wf, args). Use wf.phase(name, fn), wf.runAgent({ name, prompt, readOnly, modelHint, outputSchema? }), wf.parallel(thunks, { concurrency }), and wf.synthesize({ inputs, rubric }). Return the final value from run.',
+        'Authoring contract (you do not need to search for it): source is JavaScript defining async function run(wf, args). Use wf.phase(name, fn), wf.runAgent({ name, prompt, readOnly, modelHint, outputSchema? }), wf.parallel(thunks, { concurrency }), and wf.synthesize({ inputs, rubric }). modelHint, when present, must be exactly fast, balanced, or deep. Return the final value from run.',
         'The manifest is JSON with exactly: name (lowercase kebab-case), description, phases (non-empty string array matching source phases), readOnly, maxAgents, maxConcurrency, and patterns. patterns entries must be one or more of classify-and-act, fan-out-and-synthesize, adversarial-verification, generate-and-filter, tournament, loop-until-done. Optional fields: plannedAgents, tokenBudget, mayUseWorktree, inputSchema.',
         `Minimal example: source \`async function run(wf,args){return await wf.phase("analyze",async()=>{const r=await wf.runAgent({name:"analyst",prompt:String(args?.request??"analyze the task"),readOnly:true,modelHint:"balanced"});return r?.finalText??"no result"})}\` with manifest \`{"name":"focused-analysis","description":"Analyze with one specialist.","phases":["analyze"],"readOnly":true,"maxAgents":1,"maxConcurrency":1,"patterns":["classify-and-act"]}\`. Adapt it to the user's task and pass the original request via args.`,
       ].join('\n'),
@@ -619,6 +620,10 @@ function installSurfaces(ctx: Context, resolved: ResolvedPluginConfig): void {
       } else {
         if (args.manifest === undefined) throw new Error('inline workflow source requires manifest')
         const module = inlineModule(args.source!, args.manifest, resolved)
+        if (currentHandoff && module.capsule !== undefined) {
+          validateWorkflowArgs(module.capsule, args.args === undefined ? {} : args.args)
+          await smokeWorkflowCapsule(module.capsule, resolved, args.args, service.taskAdmissionServices(agent))
+        }
         const explicitIntent = consumeCurrentWorkflowHandoff(agent, workflowHandoffGrants) && resolved.approvalMode !== 'always'
         run = await service.startInline(agent, module, args.args, exec.signal, 'inline', explicitIntent)
       }

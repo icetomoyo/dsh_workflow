@@ -2,7 +2,7 @@
 
 ## Version Info
 
-- Current Release: v0.1.1
+- Current Release: v0.1.2
 - Planned Version: none
 - Last Updated: 2026-08-13
 
@@ -10,6 +10,7 @@
 
 | Version | Status | Progress |
 | --- | --- | ---: |
+| v0.1.2 | Complete | 1/1 |
 | v0.1.1 | Complete | 1/1 |
 | v0.1.0 | Complete | 1/1 |
 
@@ -19,6 +20,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 001 | KodaX-parity workflow orchestration | New | Critical | Complete | v0.1.0 | [Design](features/v0.1.0.md#feature_001-kodax-parity-workflow-orchestration) |
 | 002 | Visible workflow handoff and session title integration | Fix | High | Complete | v0.1.1 | [Design](features/v0.1.1.md#feature_002-visible-workflow-handoff-and-session-title-integration) |
+| 003 | Reliable handoff preflight and background lifecycle projection | Fix | Critical | Complete | v0.1.2 | [Design](features/v0.1.2.md#feature_003-reliable-handoff-preflight-and-background-lifecycle-projection) |
 
 ## Feature Details
 
@@ -44,9 +46,20 @@
 - Started: 2026-08-13
 - Released: 2026-08-13
 
+### FEATURE_003: Reliable handoff preflight and background lifecycle projection
+
+- Description: Validate command-authored child inputs before consuming the handoff grant, and keep background workflow UI state live until a real terminal event.
+- Category: Fix
+- Priority: Critical
+- Status: Complete
+- Planned: v0.1.2
+- Created: 2026-08-13
+- Started: 2026-08-13
+- Released: 2026-08-13
+
 ## Summary
 
-- Total: 2
+- Total: 3
 - In Progress: 0
 - Planned: 0
-- Completed: 2
+- Completed: 3

@@ -7,7 +7,7 @@ import type { JobId, JobRegistry } from '@deepseek-ai/dsh-jobs'
 import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import type { ApprovalService } from '@deepseek-ai/dsh-user-approval'
 import type { UserQuestionService } from '@deepseek-ai/dsh-user-questions'
-import { authorWorkflowCapsule } from './author.js'
+import { authorWorkflowCapsule, type WorkflowSmokeAdmissionOptions } from './author.js'
 import { listBuiltinWorkflows, listWorkflowPatterns } from './builtins.js'
 import {
   deleteSavedWorkflow, discoverWorkflowCatalog, loadWorkflowByName, renameSavedWorkflow, saveWorkflowCapsule,
@@ -98,6 +98,15 @@ export class DynamicWorkflowService extends Service {
     if (this.dispatch !== undefined) throw new Error('a workflow dispatch adapter is already registered')
     this.dispatch = adapter
     return () => { if (this.engines.size === 0 && this.dispatch === adapter) this.dispatch = undefined }
+  }
+
+  taskAdmissionServices(agent: Agent): WorkflowSmokeAdmissionOptions {
+    return {
+      subagents: this.options.subagents,
+      dispatchAvailable: this.dispatch !== undefined,
+      isolationAvailable: this.isolation !== undefined,
+      resolveNested: async name => ({ module: (await this.load(agent, name)).module }),
+    }
   }
 
   async list(agent: Agent): Promise<WorkflowCatalog> {

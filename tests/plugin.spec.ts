@@ -32,6 +32,7 @@ function fixture(pluginConfig: Config = { approvalMode: 'never', maxAgents: 7, m
   const sections: unknown[] = []
   const service = {
     list: vi.fn(async () => ({ entries: [{ name: 'known', valid: true }], diagnostics: [] })),
+    taskAdmissionServices: vi.fn(() => ({})),
     startNamed: vi.fn(async () => run()), startInline: vi.fn(async () => run()),
     create: vi.fn(async () => ({ capsule: { manifest: { name: 'created', description: 'created', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] }, source: 'async function run(wf, args) { return true; }' }, warnings: [] })),
     rerun: vi.fn(async () => run({ source: 'run-snapshot' })), attachBackgroundJob: vi.fn(() => 'workflow-1'),
@@ -56,6 +57,12 @@ function fixture(pluginConfig: Config = { approvalMode: 'never', maxAgents: 7, m
 
 const agent = { session: { header: { cwd: 'C:\\workspace' } }, inject: vi.fn(), steer: vi.fn() } as unknown as Agent
 const exec = { agent, signal: new AbortController().signal }
+const smokeableInlineSource = `async function run(wf, args) {
+  return await wf.phase('run', async () => {
+    const result = await wf.runAgent({ name: 'worker', prompt: String(args?.request ?? 'work'), readOnly: true, modelHint: 'balanced' });
+    return { summary: result?.finalText ?? 'no result' };
+  });
+}`
 
 describe('Cordis plugin entrypoint', () => {
   it('publishes its service before installing dependent surfaces in a real Cordis context', async () => {
@@ -134,7 +141,7 @@ describe('Cordis plugin entrypoint', () => {
     }, true)
     expect(fx.tools.map(tool => tool.name)).toEqual(['flows', 'execute_flow', 'manage_flow'])
     const options = fx.ctx.plugin.mock.calls[0]?.[1] as Record<string, unknown>
-    expect(options).toMatchObject({ config: { projectDirectory: 'project', pluginVersion: '0.1.1', modelTiers: { fast: { subagentProvider: 'fast-p', provider: 'fast-llm', model: 'fast-m', maxTokens: 16 } }, readOnlyToolFilter: { deny: ['danger'] } }, approval: { service: 'approval' }, jobs: { service: 'jobs' }, userQuestions: { service: 'userQuestions' } })
+    expect(options).toMatchObject({ config: { projectDirectory: 'project', pluginVersion: '0.1.2', modelTiers: { fast: { subagentProvider: 'fast-p', provider: 'fast-llm', model: 'fast-m', maxTokens: 16 } }, readOnlyToolFilter: { deny: ['danger'] } }, approval: { service: 'approval' }, jobs: { service: 'jobs' }, userQuestions: { service: 'userQuestions' } })
     expect(fx.tools[0]!.output.render({}, { ok: true })).toEqual([{ type: 'text', text: '{\n  "ok": true\n}' }])
     await expect(fx.tools[0]!.execute({}, { signal: exec.signal })).rejects.toThrow(/requires a calling DSH agent/u)
     ;(fx.service.attachBackgroundJob as ReturnType<typeof vi.fn>).mockReturnValueOnce(undefined)
@@ -148,7 +155,7 @@ describe('Cordis plugin entrypoint', () => {
     expect(await list.execute({}, exec)).toMatchObject({ entries: [{ name: 'known' }] })
     expect(await execute.execute({ name: 'known', args: { value: 1 } }, exec)).toMatchObject({ status: 'completed' })
     expect(await execute.execute({ request: 'create one', args: {}, save_scope: 'project', background: true }, exec)).toMatchObject({ runId: 'run-1', jobId: 'workflow-1' })
-    expect(await execute.execute({ source: 'async function run(wf, args) { return args; }', manifest: { name: 'inline', description: 'inline', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] }, args: {} }, exec)).toMatchObject({ status: 'completed' })
+    expect(await execute.execute({ source: smokeableInlineSource, manifest: { name: 'inline', description: 'inline', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] }, args: {} }, exec)).toMatchObject({ status: 'completed' })
     await expect(execute.execute({ name: 'a', request: 'b' }, exec)).rejects.toThrow(/exactly one/u)
     await expect(execute.execute({ source: 'async function run(wf, args) {}' }, exec)).rejects.toThrow(/requires manifest/u)
     expect(fx.service.startNamed).toHaveBeenCalledOnce()
@@ -167,7 +174,7 @@ describe('Cordis plugin entrypoint', () => {
     const handoff = steer.mock.calls[0]![0] as { readonly id: string; readonly source: Record<string, unknown> }
     events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: handoff })
     const inline = {
-      source: 'async function run(wf, args) { return args; }',
+      source: smokeableInlineSource,
       manifest: { name: 'inline', description: 'inline', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
       args: {},
     }
@@ -190,22 +197,483 @@ describe('Cordis plugin entrypoint', () => {
     events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
 
     await expect(execute.execute({
-      source: 'async function run(wf, args) { return args; }',
+      source: smokeableInlineSource,
       manifest: { name: '', description: 'invalid empty name', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
     }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow()
     expect(fx.service.startInline).not.toHaveBeenCalled()
 
     await execute.execute({
-      source: 'async function run(wf, args) { return args; }',
+      source: smokeableInlineSource,
       manifest: { name: 'corrected', description: 'corrected', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
       args: {},
     }, { agent: explicitAgent, signal: exec.signal })
     expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), {}, exec.signal, 'inline', true)
   })
 
+  it('smoke-validates the complete inline workflow before consuming its handoff grant', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'author then correct runtime metadata', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'runtime-metadata', description: 'runtime metadata', phases: ['analyze', 'verify'], readOnly: true, maxAgents: 2, maxConcurrency: 1, patterns: ['classify-and-act'] }
+
+    await expect(execute.execute({
+      source: `async function run(wf, args) {
+        void args;
+        await wf.phase('analyze', async () => await wf.runAgent({ name: 'analyst', prompt: 'analyze', readOnly: true, modelHint: 'balanced' }));
+        return await wf.phase('verify', async () => await wf.runAgent({ name: 'verifier', prompt: 'verify', readOnly: true, modelHint: args === null ? 'powerful' : 'deep' }));
+      }`,
+      manifest,
+      args: null,
+    }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow(/modelHint must be fast, balanced, or deep/u)
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+
+    await execute.execute({
+      source: `async function run(wf, args) {
+        void args;
+        await wf.phase('analyze', async () => await wf.runAgent({ name: 'analyst', prompt: 'analyze', readOnly: true, modelHint: 'balanced' }));
+        return await wf.phase('verify', async () => await wf.runAgent({ name: 'verifier', prompt: 'verify', readOnly: true, modelHint: 'deep' }));
+      }`,
+      manifest,
+      args: null,
+    }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), null, exec.signal, 'inline', true)
+  })
+
+  it.each([
+    {
+      label: 'a write-capable child inside a read-only manifest',
+      source: `async function run(wf, args) {
+        void args;
+        return await wf.runAgent({ name: 'writer', prompt: 'write', readOnly: false });
+      }`,
+      manifest: { name: 'read-only-boundary', description: 'read-only boundary', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
+      correctedSource: `async function run(wf, args) {
+        void args;
+        return await wf.runAgent({ name: 'reader', prompt: 'read', readOnly: true });
+      }`,
+      error: /readOnly=true cannot spawn write-capable child/u,
+    },
+    {
+      label: 'more dynamic launches than the manifest agent limit',
+      source: `async function run(wf, args) {
+        void args;
+        const results = [];
+        for (const name of ['one', 'two']) results.push(await wf.runAgent({ name, prompt: name, readOnly: true }));
+        return results;
+      }`,
+      manifest: { name: 'agent-limit', description: 'agent limit', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
+      correctedSource: `async function run(wf, args) {
+        void args;
+        return await wf.runAgent({ name: 'one', prompt: 'one', readOnly: true });
+      }`,
+      error: /workflow agent limit exceeded/u,
+    },
+  ])('preserves the handoff grant when smoke rejects $label', async ({ source, manifest, correctedSource, error }) => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'author within global limits', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+
+    await expect(execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow(error)
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+    await execute.execute({ source: correctedSource, manifest }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), undefined, exec.signal, 'inline', true)
+  })
+
+  it('validates inline args before consuming the handoff grant', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'author with validated inputs', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = {
+      name: 'typed-input', description: 'typed input', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'],
+      inputSchema: { type: 'object', required: ['request'], properties: { request: { type: 'string' } }, additionalProperties: false },
+    }
+
+    await expect(execute.execute({ source: smokeableInlineSource, manifest, args: {} }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow(/args\.request is required/u)
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+    await execute.execute({ source: smokeableInlineSource, manifest, args: { request: 'inspect' } }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), { request: 'inspect' }, exec.signal, 'inline', true)
+  })
+
+  it.each([
+    {
+      label: 'invalid parallel concurrency',
+      source: `async function run(wf, args) {
+        void args;
+        return await wf.parallel([async () => await wf.runAgent({ name: 'worker', prompt: 'work', readOnly: true })], { concurrency: 0 });
+      }`,
+      manifest: { name: 'parallel-limit', description: 'parallel limit', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['fan-out-and-synthesize'] },
+      error: /parallel concurrency must be a positive integer/u,
+    },
+    {
+      label: 'synthesis beyond the agent limit',
+      source: `async function run(wf, args) {
+        void args;
+        const result = await wf.runAgent({ name: 'worker', prompt: 'work', readOnly: true });
+        return await wf.synthesize({ inputs: [result], rubric: 'summarize' });
+      }`,
+      manifest: { name: 'synthesis-limit', description: 'synthesis limit', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['fan-out-and-synthesize'] },
+      error: /workflow agent limit exceeded/u,
+    },
+    {
+      label: 'a task allocation above the token budget',
+      source: `async function run(wf, args) {
+        void args;
+        return await wf.runAgent({ name: 'worker', prompt: 'work', readOnly: true, modelHint: 'balanced' });
+      }`,
+      manifest: { name: 'token-limit', description: 'token limit', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, tokenBudget: 1, patterns: ['classify-and-act'] },
+      error: /workflow token budget exceeded before agent start/u,
+    },
+  ])('rejects $label before consuming the handoff grant', async ({ source, manifest, error }) => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'author valid admissions', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+
+    await expect(execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow(error)
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+  })
+
+  it('uses actual execution-path launches instead of static call-site count', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'run one selected branch', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const source = `async function run(wf, args) {
+      if (args.kind === 'a') return await wf.runAgent({ name: 'a', prompt: 'a', readOnly: true });
+      return await wf.runAgent({ name: 'b', prompt: 'b', readOnly: true });
+    }`
+    const manifest = { name: 'selected-branch', description: 'selected branch', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] }
+
+    await execute.execute({ source, manifest, args: { kind: 'a' } }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), { kind: 'a' }, exec.signal, 'inline', true)
+  })
+
+  it('preserves the handoff grant when parallel token reservations exceed the workflow budget', async () => {
+    const fx = fixture({
+      approvalMode: 'generated-and-local',
+      fastMaxTokens: 6,
+      balancedMaxTokens: 6,
+      deepMaxTokens: 6,
+    })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'run within the total token budget', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'parallel-budget', description: 'parallel budget', phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 2, tokenBudget: 10, patterns: ['fan-out-and-synthesize'] }
+    const source = `async function run(wf, args) {
+      void args;
+      return await wf.parallel([
+        async () => await wf.runAgent({ name: 'one', prompt: 'one', readOnly: true, maxTokens: 6 }),
+        async () => await wf.runAgent({ name: 'two', prompt: 'two', readOnly: true, maxTokens: 6 })
+      ], { concurrency: 2 });
+    }`
+    await expect(execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow(/workflow token budget exceeded before agent start/u)
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+
+    const corrected = source.replace('maxTokens: 6 })\n      ],', 'maxTokens: 4 })\n      ],')
+    await execute.execute({ source: corrected, manifest }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), undefined, exec.signal, 'inline', true)
+  })
+
+  it('releases token reservations between sequential parallel lanes', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local', fastMaxTokens: 6, balancedMaxTokens: 6, deepMaxTokens: 6 })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'run sequential parallel lanes', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'sequential-budget', description: 'sequential budget', phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 1, tokenBudget: 10, patterns: ['fan-out-and-synthesize'] }
+    const source = `async function run(wf, args) { void args; return await wf.parallel([
+      async () => await wf.runAgent({ name: 'one', prompt: 'one', readOnly: true, maxTokens: 6 }),
+      async () => await wf.runAgent({ name: 'two', prompt: 'two', readOnly: true, maxTokens: 6 })
+    ], { concurrency: 1 }); }`
+
+    await execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), undefined, exec.signal, 'inline', true)
+  })
+
+  it('releases completed runAgent reservations between sequential calls in one lane', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'run sequential calls in one lane', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'one-lane-sequential', description: 'one lane sequential', phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 1, tokenBudget: 10, patterns: ['fan-out-and-synthesize'] }
+    const source = `async function run(wf, args) { void args; return await wf.parallel([async () => { await wf.runAgent({ name: 'one', prompt: 'one', readOnly: true, maxTokens: 6 }); return await wf.runAgent({ name: 'two', prompt: 'two', readOnly: true, maxTokens: 6 }); }], { concurrency: 1 }); }`
+
+    await execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), undefined, exec.signal, 'inline', true)
+  })
+
+  it('caps smoke parallel lanes to the manifest concurrency limit', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'respect manifest concurrency', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'manifest-concurrency', description: 'manifest concurrency', phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 1, tokenBudget: 10, patterns: ['fan-out-and-synthesize'] }
+    const source = `async function run(wf, args) { void args; return await wf.parallel([
+      async () => await wf.runAgent({ name: 'one', prompt: 'one', readOnly: true, maxTokens: 6 }),
+      async () => await wf.runAgent({ name: 'two', prompt: 'two', readOnly: true, maxTokens: 6 })
+    ], { concurrency: 2 }); }`
+
+    await execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), undefined, exec.signal, 'inline', true)
+  })
+
+  it('does not wait for parallel lanes that launch no workflow task', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'allow a skipped lane', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'skipped-lane', description: 'skipped lane', phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 2, patterns: ['fan-out-and-synthesize'] }
+    const source = `async function run(wf, args) { void args; return await wf.parallel([
+      async () => await wf.runAgent({ name: 'one', prompt: 'one', readOnly: true }),
+      async () => ({ skipped: true })
+    ], { concurrency: 2 }); }`
+
+    await execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), undefined, exec.signal, 'inline', true)
+  })
+
+  it.each([
+    {
+      label: 'pipeline tasks',
+      source: `async function run(wf, args) { void args; return await wf.pipeline(['one', 'two'], async (value) => await wf.runAgent({ name: value, prompt: value, readOnly: true, maxTokens: 6 })); }`,
+    },
+    {
+      label: 'detached spawned tasks',
+      source: `async function run(wf, args) { void args; const one = await wf.spawnAgent({ name: 'one', prompt: 'one', readOnly: true, maxTokens: 6 }); const two = await wf.spawnAgent({ name: 'two', prompt: 'two', readOnly: true, maxTokens: 6 }); return await Promise.all([wf.wait(one.taskId), wf.wait(two.taskId)]); }`,
+    },
+  ])('preserves the handoff grant when concurrent $label exceed the token budget', async ({ source }) => {
+    const fx = fixture({ approvalMode: 'generated-and-local', fastMaxTokens: 6, balancedMaxTokens: 6, deepMaxTokens: 6 })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'stay within workflow budget', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'concurrent-budget', description: 'concurrent budget', phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 2, tokenBudget: 10, patterns: ['fan-out-and-synthesize'] }
+
+    await expect(execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow(/workflow token budget exceeded before agent start/u)
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+  })
+
+  it('releases pipeline task reservations between sequential stages', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'run sequential pipeline stages', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'pipeline-stage-budget', description: 'pipeline stage budget', phases: ['run'], readOnly: true, maxAgents: 4, maxConcurrency: 2, tokenBudget: 8, patterns: ['fan-out-and-synthesize'] }
+    const source = `async function run(wf, args) { void args; return await wf.pipeline(['one', 'two'],
+      async (value, item, index) => { const r = await wf.runAgent({ name: 'first-' + index, prompt: String(value), readOnly: true, maxTokens: 4 }); return r.finalText; },
+      async (value, item, index) => await wf.runAgent({ name: 'second-' + index, prompt: String(value), readOnly: true, maxTokens: 4 })
+    ); }`
+
+    await execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), undefined, exec.signal, 'inline', true)
+  })
+
+  it('caps pipeline smoke lanes to the manifest concurrency limit', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'respect pipeline concurrency', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'pipeline-concurrency', description: 'pipeline concurrency', phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 1, tokenBudget: 10, patterns: ['fan-out-and-synthesize'] }
+    const source = `async function run(wf, args) { void args; return await wf.pipeline(['one', 'two'], async (value) => await wf.runAgent({ name: value, prompt: value, readOnly: true, maxTokens: 6 })); }`
+
+    await execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), undefined, exec.signal, 'inline', true)
+  })
+
+  it('does not double-count spawned agents inside parallel scopes', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'spawn within parallel budget', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'parallel-spawn-budget', description: 'parallel spawn budget', phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 2, tokenBudget: 8, patterns: ['fan-out-and-synthesize'] }
+    const source = `async function run(wf, args) { void args; return await wf.parallel([
+      async () => { const task = await wf.spawnAgent({ name: 'one', prompt: 'one', readOnly: true, maxTokens: 4 }); return await wf.wait(task.taskId); },
+      async () => { const task = await wf.spawnAgent({ name: 'two', prompt: 'two', readOnly: true, maxTokens: 4 }); return await wf.wait(task.taskId); }
+    ], { concurrency: 2 }); }`
+
+    await execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), undefined, exec.signal, 'inline', true)
+  })
+
+  it('retains a spawned task reservation after its parallel lane returns the handle', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'retain spawned reservation', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'escaped-spawn-budget', description: 'escaped spawn budget', phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 2, tokenBudget: 10, patterns: ['fan-out-and-synthesize'] }
+    const source = `async function run(wf, args) { void args; const handles = await wf.parallel([
+      async () => await wf.spawnAgent({ name: 'one', prompt: 'one', readOnly: true, maxTokens: 6 })
+    ]); const second = await wf.runAgent({ name: 'two', prompt: 'two', readOnly: true, maxTokens: 6 }); await wf.wait(handles[0].taskId); return second; }`
+
+    await expect(execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow(/workflow token budget exceeded before agent start/u)
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+  })
+
+  it('smoke-validates nested parallel scopes without rejecting valid nesting', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'run nested parallel analysis', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'nested-parallel', description: 'nested parallel', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['fan-out-and-synthesize'] }
+    const source = (hint: string) => `async function run(wf, args) { void args; return await wf.parallel([async () => await wf.parallel([async () => await wf.runAgent({ name: 'worker', prompt: 'work', readOnly: true, modelHint: '${hint}' })])]); }`
+
+    await expect(execute.execute({ source: source('powerful'), manifest }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow(/modelHint must be fast, balanced, or deep/u)
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+    await execute.execute({ source: source('balanced'), manifest }, { agent: explicitAgent, signal: exec.signal })
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), undefined, exec.signal, 'inline', true)
+  })
+
+  it('resolves and validates nested workflows before consuming the handoff grant', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    const resolveNested = vi.fn(async (nestedName: string) => {
+      if (nestedName === 'missing') throw new Error('workflow "missing" was not found')
+      return {
+        module: {
+          manifest: { name: 'known-nested', description: 'known nested', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
+          execution: 'capability-generated',
+          source: `async function run(wf, args) { void args; const r = await wf.runAgent({ name: 'nested', prompt: 'nested', readOnly: true }); return { summary: r.finalText }; }`,
+        },
+      }
+    })
+    fx.service.taskAdmissionServices.mockReturnValue({ resolveNested })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'run a nested workflow', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'nested-parent', description: 'nested parent', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] }
+    const source = (name: string) => `async function run(wf, args) { void args; const r = await wf.workflow('${name}', {}); return { summary: String(r?.summary ?? r) }; }`
+
+    await expect(execute.execute({ source: source('missing'), manifest }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow(/workflow "missing" was not found/u)
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+    await execute.execute({ source: source('known-nested'), manifest }, { agent: explicitAgent, signal: exec.signal })
+    expect(resolveNested).toHaveBeenCalledWith('known-nested')
+    expect(fx.service.startInline).toHaveBeenLastCalledWith(explicitAgent, expect.anything(), undefined, exec.signal, 'inline', true)
+  })
+
+  it('rejects a second nested workflow even when a combinator would otherwise absorb it', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    fx.service.taskAdmissionServices.mockReturnValue({
+      resolveNested: async () => ({
+        module: {
+          manifest: { name: 'first-level', description: 'first level', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
+          execution: 'capability-generated',
+          source: `async function run(wf, args) { void args; return await wf.parallel([async () => await wf.workflow('too-deep', {})]); }`,
+        },
+      }),
+    })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'run bounded nesting', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'nested-parent', description: 'nested parent', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] }
+    const source = `async function run(wf, args) { void args; return await wf.workflow('first-level', {}); }`
+
+    await expect(execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow(/nested workflows are limited to one level/u)
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+  })
+
+  it('applies token reservation smoke checks inside trusted-package nested modules', async () => {
+    const fx = fixture({ approvalMode: 'generated-and-local' })
+    fx.service.list.mockResolvedValueOnce({ entries: [], diagnostics: [] })
+    fx.service.taskAdmissionServices.mockReturnValue({
+      resolveNested: async () => ({
+        module: {
+          manifest: { name: 'trusted-parallel', description: 'trusted parallel', phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 2, patterns: ['fan-out-and-synthesize'] },
+          execution: 'trusted-package',
+          run: async (wf: any) => await wf.parallel([
+            async () => await wf.runAgent({ name: 'one', prompt: 'one', readOnly: true, maxTokens: 6 }),
+            async () => await wf.runAgent({ name: 'two', prompt: 'two', readOnly: true, maxTokens: 6 }),
+          ], { concurrency: 2 }),
+        },
+      }),
+    })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const steer = vi.fn()
+    const explicitAgent = { session: { header: { cwd: 'C:\\workspace' }, events }, inject: vi.fn(), steer } as unknown as Agent
+    const execute = fx.tools.find(tool => tool.name === 'run_workflow')!
+    await fx.command().handler({ agent: explicitAgent, rawInput: 'run trusted nested parallel work', signal: exec.signal })
+    events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
+    const manifest = { name: 'trusted-parent', description: 'trusted parent', phases: ['run'], readOnly: true, maxAgents: 2, maxConcurrency: 2, tokenBudget: 10, patterns: ['fan-out-and-synthesize'] }
+    const source = `async function run(wf, args) { void args; return await wf.workflow('trusted-parallel', {}); }`
+
+    await expect(execute.execute({ source, manifest }, { agent: explicitAgent, signal: exec.signal })).rejects.toThrow(/workflow token budget exceeded before agent start/u)
+    expect(fx.service.startInline).not.toHaveBeenCalled()
+  })
+
   it('rejects forged, stale, superseded, and request-mode command handoffs', async () => {
     const inline = {
-      source: 'async function run(wf, args) { return args; }',
+      source: smokeableInlineSource,
       manifest: { name: 'inline', description: 'inline', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
       args: {},
     }
@@ -257,7 +725,7 @@ describe('Cordis plugin entrypoint', () => {
     events.push({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: steer.mock.calls[0]![0] })
     const alwaysRun = always.tools.find(tool => tool.name === 'run_workflow')!
     await alwaysRun.execute({
-      source: 'async function run(wf, args) { return args; }',
+      source: smokeableInlineSource,
       manifest: { name: 'inline', description: 'inline', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
       args: {},
     }, { agent: explicitAgent, signal: exec.signal })
@@ -351,7 +819,17 @@ describe('Cordis plugin entrypoint', () => {
 
   it('completes the real DSH command lifecycle before the handed-off workflow runs', async () => {
     const registeredTools: Array<{ name: string; execute(args: Record<string, unknown>, exec: unknown): Promise<unknown> }> = []
-    class StubSubagents extends Service { constructor(ctx: Context) { super(ctx, 'subagents') } }
+    class StubSubagents extends Service {
+      constructor(ctx: Context) { super(ctx, 'subagents') }
+      getProvider(name: string) { return { name, capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }, inheritsParentContext: false } }
+      async start() {
+        return {
+          id: 'lifecycle-child', localAgent: undefined,
+          result: Promise.resolve({ output: [{ type: 'text' as const, text: 'done' }], stopReason: 'completed' as const }),
+          dispose: vi.fn(async () => {}),
+        }
+      }
+    }
     class StubTools extends Service {
       constructor(ctx: Context) { super(ctx, 'tools') }
       register(value: { name: string; execute(args: Record<string, unknown>, exec: unknown): Promise<unknown> }): () => void { registeredTools.push(value); return () => {} }
@@ -406,10 +884,10 @@ describe('Cordis plugin entrypoint', () => {
 
       const runTool = registeredTools.find(tool => tool.name === 'run_workflow')!
       const result = await runTool.execute({
-        source: 'async function run(wf, args) { return { ok: true }; }', wait: true,
+        source: smokeableInlineSource, wait: true,
         manifest: { name: 'lifecycle-proof', description: 'lifecycle proof', phases: ['run'], readOnly: true, maxAgents: 1, maxConcurrency: 1, patterns: ['classify-and-act'] },
       }, { agent: liveAgent, signal: exec.signal }) as { status: string; result: unknown }
-      expect(result).toMatchObject({ status: 'completed', result: { ok: true } })
+      expect(result).toMatchObject({ status: 'completed', result: { summary: 'done' } })
     } finally {
       await workflow.dispose(); await tools.dispose(); await subagents.dispose(); await commands.dispose(); await sessionTitles.dispose(); await sessions.dispose()
       await rm(cwd, { recursive: true, force: true })

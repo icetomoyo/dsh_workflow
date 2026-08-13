@@ -3,7 +3,7 @@ import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent';
 import { type ToolRestriction } from '@deepseek-ai/dsh-tools';
 import type { ApprovalService } from '@deepseek-ai/dsh-user-approval';
 import { WorkflowRunStore } from './store.js';
-import type { ResolvedWorkflowConfig, WorkflowCapsule, WorkflowEvent, WorkflowPreflightResult, WorkflowRun, WorkflowRunSnapshot, WorkflowStartInput, WorkflowVerificationAdapter, WorktreeIsolationAdapter, WorkflowDispatchAdapter } from './types.js';
+import type { ResolvedWorkflowConfig, WorkflowCapsule, WorkflowEvent, WorkflowModelHint, WorkflowPreflightResult, WorkflowRun, WorkflowManifest, WorkflowRunSnapshot, WorkflowSpawnAgentInput, WorkflowStartInput, WorkflowVerificationAdapter, WorktreeIsolationAdapter, WorkflowDispatchAdapter } from './types.js';
 export interface WorkflowEngineDependencies {
     readonly subagents: SubagentRuntime;
     readonly config: ResolvedWorkflowConfig;
@@ -33,6 +33,24 @@ export declare class WorkflowSemaphore {
     acquire(signal: AbortSignal): Promise<() => void>;
     private lease;
 }
+/** Validate an authored child-agent request against the same contract used at dispatch. */
+export declare function validateWorkflowTaskInput(value: WorkflowSpawnAgentInput): WorkflowSpawnAgentInput;
+export interface WorkflowTaskAdmissionContext {
+    readonly manifest: WorkflowManifest;
+    readonly config: ResolvedWorkflowConfig;
+    readonly totalSpawned: number;
+    readonly subagents?: Pick<SubagentRuntime, 'getProvider'>;
+    readonly dispatchAvailable?: boolean;
+    readonly isolationAvailable?: boolean;
+}
+export interface WorkflowTaskAdmission {
+    readonly readOnly: boolean;
+    readonly route: ResolvedWorkflowConfig['modelTiers'][WorkflowModelHint];
+    readonly allocation: number;
+    readonly subagentProvider: string;
+}
+/** Validate deterministic task admission rules shared by smoke and real execution. */
+export declare function validateWorkflowTaskAdmission(input: WorkflowSpawnAgentInput, context: WorkflowTaskAdmissionContext): WorkflowTaskAdmission;
 export declare class DynamicWorkflowEngine {
     private readonly deps;
     private readonly runs;
@@ -61,7 +79,6 @@ export declare class DynamicWorkflowEngine {
     private createApi;
     private startTask;
     private driveTask;
-    private route;
     private taskPrompt;
     private expectTask;
     private taskSnapshot;

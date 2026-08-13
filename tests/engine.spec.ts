@@ -322,8 +322,10 @@ describe('dynamic workflow engine', () => {
     expect(fx.engine.resume(run.runId)).toBe(true)
     await vi.waitFor(() => expect(fake.starts).toHaveBeenCalledTimes(2))
     expect((await run.done).status).toBe('completed')
-    const nativeTypes = (fx.parent.session.append as unknown as ReturnType<typeof vi.fn>).mock.calls.map(call => call[0])
+    const nativeCalls = (fx.parent.session.append as unknown as ReturnType<typeof vi.fn>).mock.calls
+    const nativeTypes = nativeCalls.map(call => call[0])
     expect(nativeTypes).toEqual(['tool-workflow/run-start', 'tool-workflow/agent-start', 'tool-workflow/agent-end', 'tool-workflow/agent-start', 'tool-workflow/agent-end', 'tool-workflow/run-end'])
+    expect(nativeCalls[0]?.[1]).toMatchObject({ turn: null })
   })
 
   it('resumes unchanged task occurrences from the immutable run cache', async () => {

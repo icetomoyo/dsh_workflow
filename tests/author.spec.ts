@@ -159,7 +159,7 @@ describe('scout-then-author workflow generation', () => {
       return { summary: result && result.finalText };
     }`
     const fake = service([undefined, authored(source), authored(source), authored(source)])
-    await expect(authorWorkflowCapsule({ request: 'build it', parent, subagents: fake.value, config: config(), signal: new AbortController().signal })).rejects.toThrow(/agent name must be a non-empty string/u)
+    await expect(authorWorkflowCapsule({ request: 'build it', parent, subagents: fake.value, config: config(), signal: new AbortController().signal })).rejects.toThrow(/workflow agent input\.name must be a non-empty string/u)
   })
 
   it.each([

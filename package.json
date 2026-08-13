@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/workflow",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "KodaX-parity dynamic workflow harness for DeepSeek Harness",
   "type": "module",
   "main": "lib/index.js",
@@ -44,7 +44,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check:compatibility": "node scripts/check-compatibility.mjs",
+    "check:compatibility": "node scripts/check-compatibility.mjs && node scripts/check-dsh-workflow-projection.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",

@@ -9,7 +9,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEventMap } from '@deepseek-ai/dsh-session'
 import type { SubagentRun, SubagentRuntime, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { WorkflowRunId } from '@deepseek-ai/dsh-workflow'
-import type {} from '@deepseek-ai/dsh-tool-workflow/types'
+import type { ToolWorkflowRunStartData } from '@deepseek-ai/dsh-tool-workflow/types'
 import { assertObjectJsonSchema, validateJsonSchemaValue, type ObjectJsonSchema, type ToolRestriction } from '@deepseek-ai/dsh-tools'
 import type { ApprovalService } from '@deepseek-ai/dsh-user-approval'
 import { createWorkflowCapsule, validateWorkflowArgs } from './capsule.js'
@@ -18,7 +18,7 @@ import { WorkflowRunStore, type WorkflowRunWriter } from './store.js'
 import type {
   JsonValue, ResolvedWorkflowConfig, WorkflowApi, WorkflowArtifactRef, WorkflowCapsule,
   WorkflowCostReport, WorkflowEvent, WorkflowModelHint, WorkflowPreflightResult, WorkflowRun,
-  WorkflowRunSnapshot, WorkflowSpawnAgentInput, WorkflowStartInput, WorkflowTaskHandle,
+  WorkflowManifest, WorkflowRunSnapshot, WorkflowSpawnAgentInput, WorkflowStartInput, WorkflowTaskHandle,
   WorkflowTaskResult, WorkflowTaskSnapshot, WorkflowTaskUsage, WorkflowVerificationAdapter, WorktreeIsolationAdapter,
   WorkflowDispatchAdapter, WorkflowDispatchTelemetry, WorkflowOutcome, WorkflowProcessItem, WorkflowProcessItemStatus, WorkflowProcessSnapshot, WorkflowTaskVerificationResult,
 } from './types.js'
@@ -300,9 +300,19 @@ async function gitWorkspaceState(cwd: string, requiredPaths: readonly string[] =
   } catch { return undefined }
 }
 
+interface SessionScopedWorkflowRunStartData extends ToolWorkflowRunStartData {
+  /** Generic DSH Conversation coordinate: null explicitly owns this event at Session scope. */
+  readonly turn: null
+}
+
 function appendNative<T extends keyof SessionEventMap>(session: Session, type: T, data: SessionEventMap[T]): void {
   const append = session.append.bind(session) as (event: T, value: SessionEventMap[T]) => void
   append(type, data)
+}
+
+function appendSessionScopedRunStart(session: Session, data: SessionScopedWorkflowRunStartData): void {
+  const append = session.append.bind(session) as (event: 'tool-workflow/run-start', value: SessionScopedWorkflowRunStartData) => void
+  append('tool-workflow/run-start', data)
 }
 
 const DEFAULT_READ_ONLY_TOOLS = ['read', 'read_image', 'glob', 'grep', 'lsp', 'skill', 'web_search'] as const
@@ -391,7 +401,8 @@ function optionalStrings(value: Record<string, unknown>, key: string, label: str
   if (items !== undefined && (!Array.isArray(items) || items.some(item => typeof item !== 'string' || item.trim().length === 0))) throw new WorkflowControlError(`${label}.${key} must be an array of non-empty strings when provided`)
 }
 
-function validateTaskInput(value: WorkflowSpawnAgentInput): WorkflowSpawnAgentInput {
+/** Validate an authored child-agent request against the same contract used at dispatch. */
+export function validateWorkflowTaskInput(value: WorkflowSpawnAgentInput): WorkflowSpawnAgentInput {
   const input = value as unknown as Record<string, unknown>
   exactKeys(input, ['name', 'phase', 'prompt', 'scopeSummary', 'constraints', 'readOnly', 'subagentType', 'target', 'modelHint', 'provider', 'model', 'isolation', 'effort', 'maxTokens', 'evidenceRefs', 'verification', 'outputSchema', 'terseResult'], 'workflow agent input')
   optionalString(input, 'name', 'workflow agent input')
@@ -428,6 +439,52 @@ function validateTaskInput(value: WorkflowSpawnAgentInput): WorkflowSpawnAgentIn
   return value
 }
 
+export interface WorkflowTaskAdmissionContext {
+  readonly manifest: WorkflowManifest
+  readonly config: ResolvedWorkflowConfig
+  readonly totalSpawned: number
+  readonly subagents?: Pick<SubagentRuntime, 'getProvider'>
+  readonly dispatchAvailable?: boolean
+  readonly isolationAvailable?: boolean
+}
+
+export interface WorkflowTaskAdmission {
+  readonly readOnly: boolean
+  readonly route: ResolvedWorkflowConfig['modelTiers'][WorkflowModelHint]
+  readonly allocation: number
+  readonly subagentProvider: string
+}
+
+function workflowTaskRoute(input: WorkflowSpawnAgentInput, readOnly: boolean, config: ResolvedWorkflowConfig): ResolvedWorkflowConfig['modelTiers'][WorkflowModelHint] {
+  const hasExplicitSelector = input.provider !== undefined || input.model !== undefined
+  const hint = hasExplicitSelector || input.modelHint === undefined || input.modelHint === 'balanced' || (input.modelHint === 'fast' && !readOnly)
+    ? 'balanced'
+    : input.modelHint
+  return config.modelTiers[hint]
+}
+
+/** Validate deterministic task admission rules shared by smoke and real execution. */
+export function validateWorkflowTaskAdmission(input: WorkflowSpawnAgentInput, context: WorkflowTaskAdmissionContext): WorkflowTaskAdmission {
+  validateWorkflowTaskInput(input)
+  if (context.totalSpawned >= Math.min(context.manifest.maxAgents, context.config.maxAgents)) throw new WorkflowControlError('workflow agent limit exceeded')
+  if (context.manifest.readOnly && input.readOnly === false) throw new WorkflowControlError(`workflow manifest readOnly=true cannot spawn write-capable child "${input.name}"`)
+  if ((input.target !== undefined || input.effort !== undefined) && context.dispatchAvailable === false) throw new WorkflowControlError('target/effort dispatch requires a registered workflow dispatch adapter')
+  if (input.isolation === 'worktree' && context.isolationAvailable === false) throw new WorkflowControlError('workflow worktree isolation requested but no isolation adapter is configured')
+  const readOnly = context.manifest.readOnly || input.readOnly === true
+  const route = workflowTaskRoute(input, readOnly, context.config)
+  const allocation = input.maxTokens ?? route.maxTokens ?? 0
+  if (context.manifest.tokenBudget !== undefined) {
+    if (allocation <= 0) throw new WorkflowControlError('token-budgeted workflow task requires maxTokens through its task or model tier')
+    if (allocation > context.manifest.tokenBudget) throw new WorkflowControlError('workflow token budget exceeded before agent start')
+  }
+  const subagentProvider = input.subagentType ?? route.subagentProvider ?? context.config.defaultProvider
+  const descriptor = context.subagents?.getProvider(subagentProvider)
+  if (context.subagents !== undefined && descriptor === undefined) throw new WorkflowControlError(`subagent provider "${subagentProvider}" is unavailable`)
+  if (readOnly && descriptor !== undefined && !descriptor.capabilities.toolFilter) throw new WorkflowControlError(`subagent provider "${subagentProvider}" cannot enforce read-only tool filtering`)
+  if (input.outputSchema !== undefined && descriptor !== undefined && !descriptor.capabilities.outputSchema) throw new WorkflowControlError(`subagent provider "${subagentProvider}" cannot produce structured output`)
+  return { readOnly, route, allocation, subagentProvider }
+}
+
 export class DynamicWorkflowEngine {
   private readonly runs = new Map<string, MutableRun>()
   private readonly subscribers = new Set<(event: WorkflowEvent, snapshot: WorkflowRunSnapshot) => void>()
@@ -462,7 +519,7 @@ export class DynamicWorkflowEngine {
   async start(input: WorkflowStartInput): Promise<WorkflowRun> {
     const preflight = await this.preflight(input)
     if (!preflight.ok) throw new Error(`workflow preflight failed: ${preflight.errors.join('; ')}`)
-    if (input.module.capsule !== undefined) validateWorkflowArgs(input.module.capsule, input.args ?? {})
+    if (input.module.capsule !== undefined) validateWorkflowArgs(input.module.capsule, input.args === undefined ? {} : input.args)
     const normalizedInput: WorkflowStartInput = input.args === undefined ? { ...input, args: {} } : input
     const runId = this.id()
     const controller = new AbortController()
@@ -580,7 +637,9 @@ export class DynamicWorkflowEngine {
 
   private async execute(run: MutableRun, preflight: WorkflowPreflightResult): Promise<WorkflowRunSnapshot> {
     const infoId = WorkflowRunId(run.snapshot.runId)
-    appendNative(run.nativeSession, 'tool-workflow/run-start', { runId: infoId, name: run.snapshot.workflow })
+    // Dynamic workflows outlive the tool step that launches them. Session-scope
+    // the start so DSH does not infer an interruption when that step closes.
+    appendSessionScopedRunStart(run.nativeSession, { runId: infoId, name: run.snapshot.workflow, turn: null })
     this.emit(run, 'workflow-started', { runId: run.snapshot.runId, workflow: run.snapshot.workflow })
     try {
       if (this.needsApproval(run.input)) {
@@ -826,7 +885,7 @@ export class DynamicWorkflowEngine {
         run.snapshot = { ...run.snapshot, phase: previous }
       }
     }
-    const start = (input: WorkflowSpawnAgentInput): Promise<WorkflowTaskHandle> => this.startTask(run, semaphore, validateTaskInput(snapshotWorkflowJson(input, 'workflow agent input')), phaseState.current)
+    const start = (input: WorkflowSpawnAgentInput): Promise<WorkflowTaskHandle> => this.startTask(run, semaphore, validateWorkflowTaskInput(snapshotWorkflowJson(input, 'workflow agent input')), phaseState.current)
     return Object.freeze({
       [WORKFLOW_INTERNAL]: Object.freeze({ beginPhase, endPhase }),
       runId: run.snapshot.runId,
@@ -940,10 +999,10 @@ export class DynamicWorkflowEngine {
   }
 
   private async startTask(run: MutableRun, semaphore: WorkflowSemaphore, input: WorkflowSpawnAgentInput, phase?: string): Promise<WorkflowTaskHandle> {
-    if (run.snapshot.totalSpawned >= Math.min(run.input.module.manifest.maxAgents, this.deps.config.maxAgents)) throw new WorkflowControlError('workflow agent limit exceeded')
-    if (run.input.module.manifest.readOnly && input.readOnly === false) throw new WorkflowControlError(`workflow manifest readOnly=true cannot spawn write-capable child "${input.name}"`)
-    if ((input.target !== undefined || input.effort !== undefined) && this.deps.dispatch === undefined) throw new WorkflowControlError('target/effort dispatch requires a registered workflow dispatch adapter')
-    if (input.isolation === 'worktree' && this.deps.isolation === undefined) throw new WorkflowControlError('workflow worktree isolation requested but no isolation adapter is configured')
+    validateWorkflowTaskAdmission(input, {
+      manifest: run.input.module.manifest, config: this.deps.config, totalSpawned: run.snapshot.totalSpawned,
+      subagents: this.deps.subagents, dispatchAvailable: this.deps.dispatch !== undefined, isolationAvailable: this.deps.isolation !== undefined,
+    })
     for (const ref of input.evidenceRefs ?? []) {
       const prefix = ['file:', 'diff:', 'finding:', 'task_id:'].find(candidate => ref.startsWith(candidate))
       if (prefix === undefined || ref.slice(prefix.length).trim().length === 0) throw new WorkflowControlError(`workflow agent input.evidenceRefs entry "${ref}" must use a non-empty file:, diff:, finding:, or task_id: reference`)
@@ -1014,9 +1073,12 @@ export class DynamicWorkflowEngine {
       run.active += 1
       run.peakConcurrency = Math.max(run.peakConcurrency, run.active)
       run.snapshot = { ...run.snapshot, activeAgents: run.active }
-      const readOnly = run.input.module.manifest.readOnly || task.input.readOnly === true
-      const route = this.route(task.input, readOnly)
-      allocation = task.input.maxTokens ?? route.maxTokens ?? 0
+      const admission = validateWorkflowTaskAdmission(task.input, {
+        manifest: run.input.module.manifest, config: this.deps.config, totalSpawned: Math.max(0, run.snapshot.totalSpawned - 1),
+        subagents: this.deps.subagents, dispatchAvailable: this.deps.dispatch !== undefined, isolationAvailable: this.deps.isolation !== undefined,
+      })
+      const { readOnly, route, subagentProvider } = admission
+      allocation = admission.allocation
       const total = run.input.module.manifest.tokenBudget
       if (total !== undefined) {
         if (allocation <= 0) throw new WorkflowControlError('token-budgeted workflow task requires maxTokens through its task or model tier')
@@ -1024,12 +1086,8 @@ export class DynamicWorkflowEngine {
         run.reservedTokens += allocation
         reservationActive = true
       }
-      const subagentProvider = task.input.subagentType ?? route.subagentProvider ?? this.deps.config.defaultProvider
-      const descriptor = this.deps.subagents.getProvider(subagentProvider)
-      if (descriptor === undefined) throw new WorkflowControlError(`subagent provider "${subagentProvider}" is unavailable`)
+      const descriptor = this.deps.subagents.getProvider(subagentProvider)!
       const verification = task.input.verification ?? (readOnly ? undefined : { enforcement: 'warn' as const, requiresMutation: true, rejectPreparatoryFinalText: true })
-      if (readOnly && !descriptor.capabilities.toolFilter) throw new WorkflowControlError(`subagent provider "${subagentProvider}" cannot enforce read-only tool filtering`)
-      if (task.input.outputSchema !== undefined && !descriptor.capabilities.outputSchema) throw new WorkflowControlError(`subagent provider "${subagentProvider}" cannot produce structured output`)
       let parent = run.input.parent
       if (task.input.isolation === 'worktree') {
         isolation = await this.deps.isolation!.prepare({ runId: run.snapshot.runId, taskId: task.id, cwd: cwdOf(parent), parent })
@@ -1330,14 +1388,6 @@ export class DynamicWorkflowEngine {
         }
       }
     }
-  }
-
-  private route(input: WorkflowSpawnAgentInput, readOnly: boolean): ResolvedWorkflowConfig['modelTiers'][WorkflowModelHint] {
-    const hasExplicitSelector = input.provider !== undefined || input.model !== undefined
-    const hint = hasExplicitSelector || input.modelHint === undefined || input.modelHint === 'balanced' || (input.modelHint === 'fast' && !readOnly)
-      ? 'balanced'
-      : input.modelHint
-    return this.deps.config.modelTiers[hint]
   }
 
   private taskPrompt(input: WorkflowSpawnAgentInput, cwd?: string): string {

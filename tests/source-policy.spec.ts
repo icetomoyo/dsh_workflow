@@ -14,6 +14,7 @@ describe('restricted source policy', () => {
     ['runtime', 'return Bun.file("x")'],
     ['timers', 'return queueMicrotask(() => {})'],
     ['dynamic-global', 'return globalThis["process"]'],
+    ['internal-bridge', 'return __dshSync("parallelEnd", "{}")'],
     ['dynamic-code', 'return Function("return process")()'],
     ['dynamic-code', 'return this.constructor.constructor("return process")()'],
     ['dynamic-code', 'return ({})["constructor"]'],

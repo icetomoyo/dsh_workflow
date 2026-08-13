@@ -4,6 +4,7 @@ import type { JobId, JobRegistry } from '@deepseek-ai/dsh-jobs';
 import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent';
 import type { ApprovalService } from '@deepseek-ai/dsh-user-approval';
 import type { UserQuestionService } from '@deepseek-ai/dsh-user-questions';
+import { type WorkflowSmokeAdmissionOptions } from './author.js';
 import { type LoadedWorkflow, type WorkflowCatalog } from './catalog.js';
 import { type WorkflowPruneOptions, type WorkflowPruneResult } from './store.js';
 import type { ResolvedWorkflowConfig, WorkflowCapsule, WorkflowModule, WorkflowRun, WorkflowRunSnapshot, WorkflowDispatchAdapter, WorkflowEvent, WorkflowSource, WorkflowVerificationAdapter, WorktreeIsolationAdapter } from './types.js';
@@ -40,6 +41,7 @@ export declare class DynamicWorkflowService extends Service {
     registerVerificationAdapter(adapter: WorkflowVerificationAdapter): () => void;
     registerIsolationAdapter(adapter: WorktreeIsolationAdapter): () => void;
     registerDispatchAdapter(adapter: WorkflowDispatchAdapter): () => void;
+    taskAdmissionServices(agent: Agent): WorkflowSmokeAdmissionOptions;
     list(agent: Agent): Promise<WorkflowCatalog>;
     load(agent: Agent, name: string, trusted?: boolean): Promise<LoadedWorkflow>;
     startNamed(agent: Agent, name: string, args?: unknown, signal?: AbortSignal, approvalGranted?: boolean): Promise<WorkflowRun>;
