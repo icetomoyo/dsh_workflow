@@ -148,8 +148,8 @@ function resolveConfig(config: Config): ResolvedPluginConfig {
     availableMcp: [...(config.availableMcp ?? [])],
     availableSkills: [...(config.availableSkills ?? [])],
     maxRetainedRuns: config.maxRetainedRuns ?? 500,
-    pluginVersion: '0.1.3',
-    dshVersion: '0.1.0-rc.5',
+    pluginVersion: '0.1.4',
+    dshVersion: '0.1.3-alpha.1',
   }
 }
 

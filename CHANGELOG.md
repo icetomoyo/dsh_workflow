@@ -4,6 +4,14 @@
 
 ---
 
+## [0.1.4] - 2026-09-05
+
+### Changed
+
+- Declare `@deepseek-ai/dsh-*` peer ranges against the current public harness release train (`^0.1.3-alpha.1`) so installs stop warning about unmet peers, and compile development against the same published versions.
+- Move the compatibility baseline to [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness) `master@d347e70390` (`0.1.3-alpha.1`), verified by a full `pnpm dsh web` boot with the bundle installed.
+
+---
 ## [0.1.3] - 2026-08-14
 
 ### Changed

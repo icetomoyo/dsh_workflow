@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const snapshot = resolve(process.env.DSH_SNAPSHOT_DIR ?? '../deepseek-harness')
-const runtimePath = resolve(snapshot, 'packages/client/runtime/lib/types/client/index.js')
+const runtimePath = resolve(snapshot, 'packages/client/ui-conversation/lib/types/client/conversation/assembler.js')
 const workflowPath = resolve(snapshot, 'packages/client/ui-workflow-run/lib/types/client/workflow-definition.js')
 for (const path of [runtimePath, workflowPath]) {
   if (!existsSync(path)) throw new Error(`DSH client build output is missing: ${path}`)
@@ -36,8 +36,9 @@ class ViewDefinitions {
   entries() { return [chatView] }
 }
 
-const input = (seq, type, data) => ({ event: { seq, time: seq * 100, type, data }, view: undefined })
+const input = (seq, type, data) => ({ type: 'event', event: { seq, time: seq * 100, type, data } })
 const assembler = new ConversationNodeAssembler(new EventDefinitions(), new ViewDefinitions())
+assembler.activateTarget('chat')
 assembler.replaceWindow([
   input(1, 'turn/start', { turn: 1 }),
   input(2, 'step/start', { turn: 1, step: 1 }),

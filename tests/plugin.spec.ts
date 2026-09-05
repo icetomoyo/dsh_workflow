@@ -141,7 +141,7 @@ describe('Cordis plugin entrypoint', () => {
     }, true)
     expect(fx.tools.map(tool => tool.name)).toEqual(['flows', 'execute_flow', 'manage_flow'])
     const options = fx.ctx.plugin.mock.calls[0]?.[1] as Record<string, unknown>
-    expect(options).toMatchObject({ config: { projectDirectory: 'project', pluginVersion: '0.1.3', modelTiers: { fast: { subagentProvider: 'fast-p', provider: 'fast-llm', model: 'fast-m', maxTokens: 16 } }, readOnlyToolFilter: { deny: ['danger'] } }, approval: { service: 'approval' }, jobs: { service: 'jobs' }, userQuestions: { service: 'userQuestions' } })
+    expect(options).toMatchObject({ config: { projectDirectory: 'project', pluginVersion: '0.1.4', modelTiers: { fast: { subagentProvider: 'fast-p', provider: 'fast-llm', model: 'fast-m', maxTokens: 16 } }, readOnlyToolFilter: { deny: ['danger'] } }, approval: { service: 'approval' }, jobs: { service: 'jobs' }, userQuestions: { service: 'userQuestions' } })
     expect(fx.tools[0]!.output.render({}, { ok: true })).toEqual([{ type: 'text', text: '{\n  "ok": true\n}' }])
     await expect(fx.tools[0]!.execute({}, { signal: exec.signal })).rejects.toThrow(/requires a calling DSH agent/u)
     ;(fx.service.attachBackgroundJob as ReturnType<typeof vi.fn>).mockReturnValueOnce(undefined)
